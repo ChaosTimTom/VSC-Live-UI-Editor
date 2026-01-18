@@ -1,279 +1,303 @@
-# Live UI Editor for VS Code
+<p align="center">
+  <img src="images/icon.png" alt="Live UI Editor" width="128" height="128">
+</p>
 
-A visual UI editor extension for VS Code that lets you **edit your React/Vite app visually** and save changes directly to source code.
+<h1 align="center">Live UI Editor</h1>
 
-![VS Code](https://img.shields.io/badge/VS%20Code-Extension-blue)
-![React](https://img.shields.io/badge/React-Supported-61dafb)
-![Vite](https://img.shields.io/badge/Vite-Supported-646cff)
+<p align="center">
+  <strong>Visual React/Vite editing inside VS Code — drag, resize, rotate, and edit text with live source code updates.</strong>
+</p>
 
-## ✨ Features
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/TheImmersiveSaga.vscode-live-ui-editor?style=for-the-badge&logo=visual-studio-code&logoColor=white&label=VS%20Code&color=007ACC" alt="VS Code Marketplace Version">
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor">
+    <img src="https://img.shields.io/visual-studio-marketplace/i/TheImmersiveSaga.vscode-live-ui-editor?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=28a745" alt="Installs">
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor">
+    <img src="https://img.shields.io/visual-studio-marketplace/r/TheImmersiveSaga.vscode-live-ui-editor?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=ff9800" alt="Rating">
+  </a>
+  <a href="https://github.com/ChaosTimTom/VSC-Live-UI-Editor/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/ChaosTimTom/VSC-Live-UI-Editor?style=for-the-badge&color=blue" alt="License">
+  </a>
+</p>
 
-- **App Mode**: Run your real Vite/React app inside VS Code and edit it visually
-- **Click-to-Code**: Click any element to jump to its source code location
-- **Visual Editing**: Drag, resize, and style elements with live preview
-- **Apply to Code**: Preview changes first, then apply them to your source files
-- **Delete Elements**: Remove JSX elements from source with a single click
-- **i18n Support**: Automatically detects and updates translation files for i18n text
-- **Multi-Select**: Select multiple elements with Shift+Click or Shift+Drag
-- **Safe Editing**: All changes are staged and previewed before writing to disk
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-how-it-works">How It Works</a> •
+  <a href="#-documentation">Docs</a> •
+  <a href="#-contributing">Contributing</a>
+</p>
 
 ---
 
-## 📦 Installation
+<!-- Add your demo GIF here -->
+<!-- <p align="center">
+  <img src="images/demo.gif" alt="Live UI Editor Demo" width="800">
+</p> -->
 
-### Option 1: Install from VSIX (Recommended)
+## ✨ Features
 
-1. Go to [Releases](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/releases)
-2. Download the latest `.vsix` file
-3. In VS Code, press `Ctrl+Shift+P` → type "Install from VSIX"
-4. Select the downloaded `.vsix` file
-5. Reload VS Code
+<table>
+<tr>
+<td width="50%">
 
-### Option 2: Build from Source
+### 🎯 Click to Code
+Click any element in your running app and instantly jump to its source location in your editor.
 
-```bash
-# Clone the repository
-git clone https://github.com/ChaosTimTom/VSC-Live-UI-Editor.git
-cd VSC-Live-UI-Editor
+</td>
+<td width="50%">
 
-# Install dependencies
-npm install
-cd webview-ui && npm install && cd ..
+### 🖱️ Drag & Resize
+Move and resize elements visually. Changes write directly to your JSX/TSX source files.
 
-# Build the extension
-npm run build
+</td>
+</tr>
+<tr>
+<td width="50%">
 
-# Package as VSIX (optional)
-npx vsce package
-```
+### ✏️ Inline Text Editing
+Double-click any text to edit it inline. Supports i18n — automatically updates your translation JSON files.
 
-Then install the generated `.vsix` file via VS Code.
+</td>
+<td width="50%">
+
+### 🗑️ Delete Elements
+Remove JSX elements from source with a single click. Fully undoable with `Ctrl+Z`.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🔄 Live Preview
+See changes instantly in the embedded browser. Toggle between Edit and Browse modes.
+
+</td>
+<td width="50%">
+
+### 📦 Safe Staging
+All changes are previewed before saving. Apply or discard pending edits with one click.
+
+</td>
+</tr>
+</table>
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Open Your Project
+### Installation
 
-Open your React/Vite project folder in VS Code.
+**From VS Code Marketplace:**
 
-### 2. Start App Mode
+1. Open VS Code
+2. Press `Ctrl+Shift+X` to open Extensions
+3. Search for **"Live UI Editor"**
+4. Click **Install**
 
-1. Press `Ctrl+Shift+P` to open the Command Palette
-2. Type **"Live UI Editor: Start App Mode"** and press Enter
-3. The extension will:
-   - Detect your Vite project
-   - Start the dev server (or attach to an existing one)
-   - Open your app in a VS Code webview panel
-
-### 3. Edit Visually
-
-Once App Mode is running, you can start editing:
-
-| Action | How To |
-|--------|--------|
-| **Select element** | Click on any element |
-| **Jump to code** | `Ctrl+Click` (or `Cmd+Click` on Mac) |
-| **Multi-select** | `Shift+Click` to toggle, or `Shift+Drag` to draw selection box |
-| **Select exact element** | `Alt+Click` (selects the precise leaf element) |
-| **Move element** | Drag the selected element |
-| **Resize element** | Drag the orange handle at bottom-right corner |
-| **Delete element** | Click the 🗑️ button above selection |
-| **Edit text** | Double-click text content to edit inline |
-
----
-
-## 🎛️ App Mode Controls
-
-The top bar in App Mode provides these controls:
-
-| Control | Description |
-|---------|-------------|
-| **Mode: Edit / Browse** | Toggle between editing mode and normal browsing |
-| **Switch to Browse/Edit** | Button to toggle mode |
-| **Pending: N** | Shows number of staged (unsaved) changes |
-| **Apply to Code** | Write all pending changes to source files |
-| **Discard** | Discard all pending changes |
-| **Identity: Stable/Fallback** | Shows if element targeting is reliable |
-| **Enable Stable IDs** | Injects stable identifiers for reliable targeting |
-| **Layout Apply** | Checkbox to enable/disable saving drag/resize changes |
-
----
-
-## 📝 Detailed Usage
-
-### Editing Styles
-
-1. Select an element by clicking it
-2. Make changes:
-   - **Drag** to move (writes `transform` to source)
-   - **Resize** using the corner handle (writes `width`/`height`)
-   - **Use UI Wizard** (chat) for complex style changes
-3. Changes appear in **Pending** count
-4. Click **Apply to Code** to save
-
-### Editing Text
-
-1. Double-click text content
-2. Edit the text inline
-3. Press Enter or click away to confirm
-4. Click **Apply to Code** to save
-
-**i18n Note**: If the text uses `{t('translation.key')}`, the extension will automatically update your translation JSON file instead of the JSX.
-
-### Deleting Elements
-
-1. Select an element
-2. Click the 🗑️ (trash) button above the selection
-3. The element is immediately removed from source code
-4. Use `Ctrl+Z` in the source file to undo if needed
-
-### Layout Apply Toggle
-
-By default, **Layout Apply is OFF** to prevent accidental layout changes.
-
-- **OFF**: Drag/resize previews work, but won't be saved to code
-- **ON**: Drag/resize changes are saved as `width`, `height`, `transform`
-
-Toggle it using the checkbox in the top bar.
-
----
-
-## ⚡ Enable Stable IDs (Recommended)
-
-For the most reliable editing experience, enable Stable IDs in your project:
-
-### Automatic Setup
-
-1. Click **Enable Stable IDs** button in App Mode
-2. The extension will:
-   - Add a Babel plugin to your project
-   - Inject `data-lui` attributes at build time
-   - Restart your dev server
-
-### Manual Setup
-
-Add to your `vite.config.ts`:
-
-```typescript
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [
-    react({
-      babel: {
-        plugins: ['./live-ui-editor.babel-plugin.js'],
-      },
-    }),
-  ],
-});
+**Or install via command line:**
+```bash
+code --install-extension TheImmersiveSaga.vscode-live-ui-editor
 ```
 
-The plugin file is automatically created in your project root when you click "Enable Stable IDs".
+### First Launch
+
+1. **Open** your React/Vite project in VS Code
+2. **Press** `Ctrl+Shift+P` → type **"Live UI: Open (App Mode)"**
+3. **Start editing** — click, drag, resize, or double-click text
+
+That's it! Your changes are staged and ready to apply.
 
 ---
 
-## 🔧 Requirements
+## 🎮 Controls
 
-- **VS Code** 1.85.0 or higher
-- **Node.js** 18+ 
-- A **Vite + React** project (other frameworks have limited support)
+| Action | Shortcut |
+|--------|----------|
+| **Select element** | `Click` |
+| **Jump to source** | `Ctrl+Click` |
+| **Multi-select** | `Shift+Click` or `Shift+Drag` |
+| **Select leaf element** | `Alt+Click` |
+| **Move element** | `Drag` selection |
+| **Resize element** | `Drag` corner handle |
+| **Edit text** | `Double-click` |
+| **Delete element** | Click `🗑️` button |
+| **Apply changes** | Click **Apply to Code** |
+| **Discard changes** | Click **Discard** |
 
-### Supported Project Types
+---
 
-| Framework | Support Level |
-|-----------|--------------|
-| Vite + React | ✅ Full |
-| Vite + React + TypeScript | ✅ Full |
-| Create React App | ⚠️ Partial (no HMR injection) |
-| Next.js | ⚠️ Experimental |
-| Plain HTML/CSS | ⚠️ Limited |
+## 🔧 How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         VS Code                              │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
+│  │   Your Source   │◄───│         Live UI Editor          │ │
+│  │    Files        │    │  ┌───────────────────────────┐  │ │
+│  │  (JSX/TSX)      │    │  │   Your Vite App (iframe)  │  │ │
+│  └─────────────────┘    │  │                           │  │ │
+│          │              │  │   [Visual editing here]   │  │ │
+│          ▼              │  │                           │  │ │
+│  ┌─────────────────┐    │  └───────────────────────────┘  │ │
+│  │   AST Parser    │    │              │                   │ │
+│  │   (ts-morph)    │    │              ▼                   │ │
+│  └─────────────────┘    │     Pending edits staged         │ │
+│                         │     Click "Apply to Code"        │ │
+│                         └─────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+1. **Proxy Server** — Routes your Vite dev server through VS Code
+2. **Injected Script** — Adds selection, dragging, and editing UI to your app
+3. **React Fiber Inspection** — Maps DOM elements back to source code locations
+4. **AST Modification** — Uses ts-morph to surgically edit your source files
+
+---
+
+## 📖 Documentation
+
+### Editing Modes
+
+| Mode | Description |
+|------|-------------|
+| **Edit** | Visual editing enabled — click to select, drag to move |
+| **Browse** | Normal app interaction — click events pass through |
+
+Toggle with the **Switch to Browse/Edit** button in the toolbar.
+
+### Layout Apply
+
+By default, layout changes (drag/resize) are **preview only**.
+
+- **OFF** (default): See visual changes, but they won't save to code
+- **ON**: Drag/resize writes `width`, `height`, `transform` to source
+
+Enable via the checkbox in the toolbar when you want to commit layout changes.
+
+### Stable IDs (Recommended)
+
+For reliable element targeting, enable Stable IDs:
+
+1. Click **Enable Stable IDs** in the toolbar
+2. The extension injects `data-lui` attributes via a Babel plugin
+3. Restart your dev server
+
+This ensures elements are uniquely identifiable even after HMR updates.
+
+### i18n Support
+
+The extension auto-detects `{t('translation.key')}` patterns:
+
+- Text edits update your `src/locales/*.json` files
+- The JSX source stays unchanged
+- Supports nested keys like `common.buttons.save`
+
+---
+
+## 📋 Requirements
+
+| Requirement | Version |
+|-------------|---------|
+| VS Code | 1.85.0+ |
+| Node.js | 18+ |
+| Project | Vite + React |
+
+### Framework Support
+
+| Framework | Status |
+|-----------|--------|
+| Vite + React | ✅ Full support |
+| Vite + React + TS | ✅ Full support |
+| Create React App | ⚠️ Limited (no proxy) |
+| Next.js | 🧪 Experimental |
+| Vue/Svelte | 🚧 Planned |
 
 ---
 
 ## 🐛 Troubleshooting
 
-### "App Mode UI buttons don't respond"
+<details>
+<summary><strong>Buttons not responding in App Mode</strong></summary>
 
-1. Reload the Extension Development Host window
-2. Restart App Mode
+Reload the VS Code window (`Ctrl+Shift+P` → "Reload Window") and restart App Mode.
 
-### "Apply didn't stick" or "wrong element changed"
+</details>
 
-- Enable **Stable IDs** for reliable targeting
-- Check the **Apply report** for detailed success/failure info
-- Some elements may fail if they can't be uniquely identified
+<details>
+<summary><strong>Changes applied to wrong element</strong></summary>
 
-### "Layout changes affected other elements"
+Enable **Stable IDs** for reliable targeting. Without them, elements are matched by heuristics which can fail after HMR updates.
 
-- This happens when parent containers use flex/grid
-- The extension modifies inline styles, which may interact with CSS layout
-- Consider using **Layout Apply OFF** and editing CSS classes instead
+</details>
 
-### "Text edit failed on i18n element"
+<details>
+<summary><strong>Dev server won't start</strong></summary>
 
-- The extension looks for translation files in `src/locales/*.json`
-- Make sure your translation key exists in the JSON file
-- Check the Output panel (View → Output → Live UI Editor) for details
+1. Ensure your `package.json` has a `dev` script
+2. Check that port 5173 is available
+3. Try starting the server manually first, then use App Mode
 
-### Dev server won't start
+</details>
 
-1. Make sure you have a valid `package.json` with a `dev` script
-2. Check that port 5173 (default Vite port) is available
-3. Try starting the dev server manually first, then use App Mode
+<details>
+<summary><strong>i18n text edit failed</strong></summary>
 
----
+- Translation files must be in `src/locales/*.json`
+- The translation key must exist in the JSON file
+- Check Output panel: **View → Output → Live UI Editor**
 
-## 📂 Project Structure
-
-```
-live-ui-editor/
-├── src/
-│   ├── extension.ts          # Main extension entry point
-│   ├── appMode/
-│   │   ├── injectedClientScript.ts  # Runs inside the app iframe
-│   │   └── webviewAppModeHtml.ts    # App Mode webview wrapper
-│   ├── codeModifier/
-│   │   └── CodeModifier.ts   # AST-based source code modifications
-│   └── chat/
-│       └── uiWizard.ts       # Natural language UI editing
-├── webview-ui/               # React webview for panels
-└── tools/                    # Vite plugin for stable IDs
-```
+</details>
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome! Here's how:
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+1. **Fork** the repository
+2. **Clone** your fork: `git clone https://github.com/YOUR_USERNAME/VSC-Live-UI-Editor.git`
+3. **Install** dependencies: `npm install && cd webview-ui && npm install`
+4. **Build**: `npm run build`
+5. **Test** in VS Code: Press `F5` to launch Extension Development Host
+6. **Submit** a pull request
+
+### Development Scripts
+
+```bash
+npm run build          # Build extension + webview
+npm run watch:extension # Watch mode for extension
+npm run build:webview   # Build webview UI only
+```
 
 ---
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgments
+## 🔗 Links
 
-- Built with [ts-morph](https://github.com/dsherret/ts-morph) for AST manipulation
-- Uses React fiber internals for element-to-source mapping
-- Inspired by browser DevTools and visual design tools
-
----
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/discussions)
+- **Marketplace**: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor)
+- **Repository**: [GitHub](https://github.com/ChaosTimTom/VSC-Live-UI-Editor)
+- **Issues**: [Report a bug](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/issues)
+- **Discussions**: [Ask questions](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/discussions)
 
 ---
 
-**Made with ❤️ for developers who want to edit UI visually without leaving VS Code.**
+<p align="center">
+  <strong>Made with ❤️ by <a href="https://github.com/ChaosTimTom">ChaosTimTom</a></strong>
+  <br>
+  <sub>Visual editing for developers who want to see their changes instantly.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ChaosTimTom/VSC-Live-UI-Editor/stargazers">
+    <img src="https://img.shields.io/github/stars/ChaosTimTom/VSC-Live-UI-Editor?style=social" alt="GitHub stars">
+  </a>
+</p>
