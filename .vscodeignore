@@ -1,0 +1,9 @@
+webview-ui/node_modules/**
+webview-ui/src/**
+webview-ui/*.ts
+webview-ui/*.tsx
+webview-ui/tsconfig.json
+webview-ui/vite.config.ts
+node_modules/**
+.vscode/**
+tools/**

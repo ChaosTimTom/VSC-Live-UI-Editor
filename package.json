@@ -1,0 +1,63 @@
+{
+  "name": "vscode-live-ui-editor",
+  "displayName": "VSCode Live UI Editor",
+  "description": "Live React UI rendered in a VS Code Webview (Phase 1 scaffolding)",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:liveUI.open",
+	"onCommand:liveUI.openAppMode",
+    "onChatParticipant:live-ui.ui-wizard"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "liveUI.open",
+        "title": "Live UI: Open"
+	  },
+	  {
+		"command": "liveUI.openAppMode",
+		"title": "Live UI: Open (App Mode)"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "live-ui.ui-wizard",
+        "name": "ui-wizard",
+        "fullName": "UI Wizard",
+        "description": "Edit the selected Live UI element via natural language (width/height/move).",
+        "isSticky": true
+      }
+    ]
+  },
+  "scripts": {
+    "build:webview": "npm --prefix webview-ui run build",
+    "build:extension": "tsc -p .",
+    "build": "npm run build:webview && npm run build:extension",
+    "watch:extension": "tsc -w -p .",
+    "package:webview": "npm --prefix webview-ui run build"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+	"parse5": "^7.2.1",
+	"http-proxy": "^1.18.1",
+    "ts-morph": "^23.0.0"
+  },
+  "files": [
+    "dist/**",
+    "webview-ui/dist/**"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+	"@types/http-proxy": "^1.17.16",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.5"
+  }
+}

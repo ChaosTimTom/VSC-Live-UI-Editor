@@ -1,0 +1,1270 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CodeModifier = void 0;
+const vscode = __importStar(require("vscode"));
+const cheerio = __importStar(require("cheerio"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+const ts_morph_1 = require("ts-morph");
+class CodeModifier {
+    async updateStyleByElementId(fileUri, elementId, newStyles) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = updateJsxInlineStyleByDataLui(text, fileUri.fsPath, elementId, newStyles);
+        }
+        else {
+            // HTML doesn't have a stable JSX attribute mapping yet.
+            return false;
+        }
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    async updateTextByElementId(fileUri, elementId, newText) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = updateJsxTextByDataLui(text, fileUri.fsPath, elementId, newText);
+        }
+        else {
+            return false;
+        }
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    async updateStyle(fileUri, lineNumber, newStyles, columnNumber, elementContext) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            updatedText = updateHtmlInlineStyle(text, lineNumber, newStyles);
+        }
+        else if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = updateJsxInlineStyle(text, fileUri.fsPath, lineNumber, newStyles, columnNumber, elementContext);
+        }
+        else {
+            throw new Error('Unsupported file type for updateStyle');
+        }
+        if (!updatedText || updatedText === text) {
+            return false;
+        }
+        const edit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(text.length));
+        edit.replace(fileUri, fullRange, updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) {
+            throw new Error('Failed to apply WorkspaceEdit');
+        }
+        await doc.save();
+        return true;
+    }
+    async updateText(fileUri, lineNumber, newText, columnNumber, elementContext) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = updateJsxTextAtLine(text, fileUri.fsPath, lineNumber, newText, columnNumber, elementContext);
+        }
+        else if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            updatedText = updateHtmlTextAtLine(text, lineNumber, newText);
+        }
+        else {
+            throw new Error('Unsupported file type for updateText');
+        }
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    /**
+     * Enhanced text update that can handle i18n/translated text.
+     * If the JSX contains a t('key') call, it will try to update the translation file instead.
+     */
+    async updateTextWithI18n(fileUri, lineNumber, newText, columnNumber, elementContext) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            // First, try to detect i18n patterns
+            const i18nResult = detectAndUpdateI18n(text, fileUri, lineNumber, newText, columnNumber, elementContext);
+            if (i18nResult) {
+                return i18nResult;
+            }
+            // Fall back to direct text update
+            const updatedText = updateJsxTextAtLine(text, fileUri.fsPath, lineNumber, newText, columnNumber, elementContext);
+            if (!updatedText || updatedText === text) {
+                return { changed: false, reason: 'no-change' };
+            }
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied)
+                return { changed: false, reason: 'no-change' };
+            await doc.save();
+            return { changed: true, reason: 'updated' };
+        }
+        else if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            const updatedText = updateHtmlTextAtLine(text, lineNumber, newText);
+            if (!updatedText || updatedText === text) {
+                return { changed: false, reason: 'no-change' };
+            }
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied)
+                return { changed: false, reason: 'no-change' };
+            await doc.save();
+            return { changed: true, reason: 'updated' };
+        }
+        return { changed: false, reason: 'not-found' };
+    }
+    async insertElement(fileUri, lineNumber, position, markup) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            updatedText = insertHtmlAtLine(text, lineNumber, position, markup);
+        }
+        else if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = insertJsxAtLine(text, doc, fileUri.fsPath, lineNumber, position, markup);
+        }
+        else {
+            throw new Error('Unsupported file type for insertElement');
+        }
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    async wrapWithBox(fileUri, lineNumber, options) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        let updatedText;
+        if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            updatedText = wrapHtmlAtLineWithBox(text, lineNumber, options);
+        }
+        else if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = wrapJsxAtLineWithBox(text, doc, fileUri.fsPath, lineNumber, options);
+        }
+        else {
+            throw new Error('Unsupported file type for wrapWithBox');
+        }
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    async updateStyleAll(fileUri, tagName, newStyles) {
+        return this.updateStyleAllMany(fileUri, [tagName], newStyles);
+    }
+    async updateStyleAllMany(fileUri, tagNames, newStyles) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        const normalizedTags = Array.from(new Set(tagNames
+            .map(t => t.trim())
+            .filter(Boolean)
+            .map(t => t.toLowerCase())));
+        if (normalizedTags.length === 0)
+            return false;
+        let updatedText;
+        if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            updatedText = updateHtmlInlineStyleAllTagsMany(text, normalizedTags, newStyles);
+        }
+        else if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            updatedText = updateJsxInlineStyleAllTagsMany(text, fileUri.fsPath, normalizedTags, newStyles);
+        }
+        else {
+            throw new Error('Unsupported file type for updateStyleAll');
+        }
+        if (!updatedText || updatedText === text) {
+            return false;
+        }
+        const edit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(text.length));
+        edit.replace(fileUri, fullRange, updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) {
+            throw new Error('Failed to apply WorkspaceEdit');
+        }
+        await doc.save();
+        return true;
+    }
+    async getTranslate(fileUri, lineNumber, columnNumber, ctx) {
+        const ext = fileUri.path.toLowerCase();
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+            return getHtmlTranslate(text, lineNumber);
+        }
+        if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+            return getJsxTranslate(text, fileUri.fsPath, lineNumber, columnNumber, ctx);
+        }
+        return [0, 0];
+    }
+    async getJsxSelection(fileUri, lineNumber) {
+        const ext = fileUri.path.toLowerCase();
+        if (!(ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js'))) {
+            return;
+        }
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+        const sourceFile = project.createSourceFile(fileUri.fsPath, text, { overwrite: true });
+        const target = findNearestJsxNodeAtLine(sourceFile, lineNumber);
+        if (!target)
+            return;
+        const start = target.getStart();
+        const end = target.getEnd();
+        const range = new vscode.Range(doc.positionAt(start), doc.positionAt(end));
+        const snippet = text.slice(start, end);
+        return { range, snippet };
+    }
+    async deleteElement(fileUri, lineNumber, columnNumber, elementContext) {
+        const ext = fileUri.path.toLowerCase();
+        if (!(ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js'))) {
+            return false;
+        }
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        const updatedText = deleteJsxElement(text, fileUri.fsPath, lineNumber, columnNumber, elementContext);
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+}
+exports.CodeModifier = CodeModifier;
+function deleteJsxElement(input, filePath, lineNumber, columnNumber, ctx) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePath, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return undefined;
+    // Get the full range including any surrounding whitespace/newlines to avoid leaving blank lines
+    const startPos = target.getStart();
+    const endPos = target.getEnd();
+    // Check if we should also remove the preceding newline/whitespace to avoid blank lines
+    let actualStart = startPos;
+    let actualEnd = endPos;
+    // Look for a preceding newline and indentation we should also remove
+    const textBefore = input.slice(0, startPos);
+    const lastNewline = textBefore.lastIndexOf('\n');
+    if (lastNewline >= 0) {
+        const between = textBefore.slice(lastNewline + 1);
+        // If only whitespace between the newline and our element, include it in deletion
+        if (/^\s*$/.test(between)) {
+            actualStart = lastNewline;
+        }
+    }
+    // Look for a trailing newline we should also remove
+    const textAfter = input.slice(endPos);
+    const nextNewline = textAfter.indexOf('\n');
+    if (nextNewline >= 0) {
+        const between = textAfter.slice(0, nextNewline);
+        // If only whitespace between our element and the newline, include the newline in deletion
+        if (/^\s*$/.test(between)) {
+            actualEnd = endPos + nextNewline + 1;
+        }
+    }
+    const before = input.slice(0, actualStart);
+    const after = input.slice(actualEnd);
+    return before + after;
+}
+function updateHtmlTextAtLine(input, lineNumber, newText) {
+    // Best-effort: replace inline text when opening+closing tag appears on the same line.
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const line = lines[idx] ?? '';
+    const m = line.match(/<\s*([A-Za-z][A-Za-z0-9:_-]*)\b[^>]*>([^<]*)<\s*\/\s*\1\s*>/);
+    if (!m)
+        return input;
+    const tag = m[1];
+    const before = line.slice(0, m.index ?? 0);
+    const after = line.slice((m.index ?? 0) + m[0].length);
+    const replaced = `${before}<${tag}>${newText}</${tag}>${after}`;
+    lines[idx] = replaced;
+    return lines.join('\n');
+}
+function updateJsxTextAtLine(input, filePathForProject, lineNumber, newText, columnNumber, ctx) {
+    // Best-effort: only handles JSX elements with no nested JSX children (i.e. simple "<button>Text</button>").
+    // Refuses strings with braces because they'd break JSX parsing.
+    if (/[{}]/.test(newText))
+        return input;
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return input;
+    if (target.getKind() !== ts_morph_1.SyntaxKind.JsxElement)
+        return input;
+    const jsxEl = target;
+    const opening = jsxEl.getOpeningElement();
+    const closing = jsxEl.getClosingElement();
+    if (!closing)
+        return input;
+    // Ensure there are no nested JSX elements.
+    const innerTextNodes = jsxEl.getChildrenOfKind(ts_morph_1.SyntaxKind.JsxText);
+    const hasNested = jsxEl.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement).length > 1 ||
+        jsxEl.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement).length > 0;
+    if (hasNested)
+        return input;
+    if (innerTextNodes.length === 0)
+        return input;
+    const start = opening.getEnd();
+    const end = closing.getStart();
+    const inner = input.slice(start, end);
+    // Preserve surrounding whitespace if present.
+    const leadingWs = inner.match(/^\s*/)?.[0] ?? '';
+    const trailingWs = inner.match(/\s*$/)?.[0] ?? '';
+    const nextInner = `${leadingWs}${newText}${trailingWs}`;
+    return input.slice(0, start) + nextInner + input.slice(end);
+}
+function getIndentOfLine(doc, lineNumber1Based) {
+    const idx = Math.max(0, Math.min(doc.lineCount - 1, lineNumber1Based - 1));
+    const line = doc.lineAt(idx).text;
+    const m = line.match(/^\s*/);
+    return m ? m[0] : '';
+}
+function insertJsxAtLine(input, doc, filePathForProject, lineNumber, position, jsx) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findNearestJsxNodeAtLine(sourceFile, lineNumber);
+    if (!target)
+        return input;
+    const start = target.getStart();
+    const end = target.getEnd();
+    const indent = getIndentOfLine(doc, lineNumber);
+    const insertion = `\n${indent}${jsx}`;
+    if (position === 'before') {
+        return input.slice(0, start) + insertion + input.slice(start);
+    }
+    if (position === 'after') {
+        return input.slice(0, end) + insertion + input.slice(end);
+    }
+    // inside
+    if (target.getKind() === ts_morph_1.SyntaxKind.JsxElement) {
+        const jsxEl = target;
+        const closing = jsxEl.getClosingElement();
+        if (!closing)
+            return input;
+        const closeStart = closing.getStart();
+        const innerIndent = indent + '\t';
+        const innerInsertion = `\n${innerIndent}${jsx}\n${indent}`;
+        return input.slice(0, closeStart) + innerInsertion + input.slice(closeStart);
+    }
+    // Can't insert inside a self-closing element.
+    return input;
+}
+function wrapJsxAtLineWithBox(input, doc, filePathForProject, lineNumber, options) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findNearestJsxNodeAtLine(sourceFile, lineNumber);
+    if (!target)
+        return input;
+    const start = target.getStart();
+    const end = target.getEnd();
+    const snippet = input.slice(start, end);
+    const indent = getIndentOfLine(doc, lineNumber);
+    const innerIndent = indent + '\t';
+    const boxOpen = `<div style={{ border: '1px solid rgba(255,255,255,0.18)', borderRadius: '12px', padding: '16px', background: 'rgba(255,255,255,0.04)' }}>`;
+    const lineEl = options?.lineUnder
+        ? `\n${innerIndent}<div style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.22)', marginTop: 10 }} />`
+        : '';
+    const wrapped = `\n${indent}${boxOpen}` +
+        `\n${innerIndent}${snippet}` +
+        lineEl +
+        `\n${indent}</div>`;
+    return input.slice(0, start) + wrapped + input.slice(end);
+}
+function updateHtmlInlineStyle(input, lineNumber, newStyles) {
+    // MVP: find the first element tag that appears on the specified line and merge its style attribute.
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const line = lines[idx] ?? '';
+    // Find a tag name on this line.
+    const m = line.match(/<\s*([A-Za-z][A-Za-z0-9:_-]*)\b/);
+    if (!m)
+        return input;
+    const tag = m[1];
+    // Determine which occurrence of this tag we’re on (1-based) by counting opening tags up to this line.
+    const occurrence = countOpeningTagOccurrencesUpToLine(lines, tag, idx);
+    const $ = cheerio.load(input, { xmlMode: false });
+    const elems = $(tag).toArray();
+    if (elems.length === 0)
+        return input;
+    // Best-effort: pick the matching occurrence for this source line.
+    const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
+    const currentStyle = $(el).attr('style') ?? '';
+    const merged = mergeCssStyleString(currentStyle, newStyles);
+    $(el).attr('style', merged);
+    return $.root().html() ?? input;
+}
+function findHtmlElementAtLine(input, lineNumber) {
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const line = lines[idx] ?? '';
+    const m = line.match(/<\s*([A-Za-z][A-Za-z0-9:_-]*)\b/);
+    if (!m)
+        return;
+    const tag = m[1];
+    const occurrence = countOpeningTagOccurrencesUpToLine(lines, tag, idx);
+    const $ = cheerio.load(input, { xmlMode: false });
+    const elems = $(tag).toArray();
+    if (elems.length === 0)
+        return;
+    const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
+    return { tag, el };
+}
+function insertHtmlAtLine(input, lineNumber, position, markup) {
+    const found = findHtmlElementAtLine(input, lineNumber);
+    if (!found)
+        return input;
+    const $ = cheerio.load(input, { xmlMode: false });
+    // Re-find within this cheerio instance.
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const occurrence = countOpeningTagOccurrencesUpToLine(lines, found.tag, idx);
+    const elems = $(found.tag).toArray();
+    const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
+    if (!el)
+        return input;
+    if (position === 'before')
+        $(el).before(`\n${markup}\n`);
+    else if (position === 'after')
+        $(el).after(`\n${markup}\n`);
+    else
+        $(el).append(`\n${markup}\n`);
+    return $.root().html() ?? input;
+}
+function wrapHtmlAtLineWithBox(input, lineNumber, options) {
+    const found = findHtmlElementAtLine(input, lineNumber);
+    if (!found)
+        return input;
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const occurrence = countOpeningTagOccurrencesUpToLine(lines, found.tag, idx);
+    const $ = cheerio.load(input, { xmlMode: false });
+    const elems = $(found.tag).toArray();
+    const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
+    if (!el)
+        return input;
+    const boxStyle = [
+        'border: 1px solid rgba(255,255,255,0.18)',
+        'border-radius: 12px',
+        'padding: 16px',
+        'background: rgba(255,255,255,0.04)',
+    ].join('; ');
+    $(el).wrap(`<div style="${boxStyle}"></div>`);
+    if (options?.lineUnder) {
+        const hrStyle = 'margin-top: 10px; border: 0; border-top: 1px solid rgba(255,255,255,0.22)';
+        const parent = $(el).parent();
+        parent.append(`\n<hr style="${hrStyle}" />\n`);
+    }
+    return $.root().html() ?? input;
+}
+function countOpeningTagOccurrencesUpToLine(lines, tagName, inclusiveLineIndex) {
+    const tag = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`<\\s*${tag}\\b`, 'g');
+    let count = 0;
+    for (let i = 0; i <= inclusiveLineIndex && i < lines.length; i++) {
+        const line = lines[i];
+        if (!line || line.indexOf('<') === -1)
+            continue;
+        // Skip closing tags like </button>
+        const cleaned = line.replace(new RegExp(`<\\s*\\/\\s*${tag}\\b`, 'g'), '');
+        const matches = cleaned.match(re);
+        if (matches)
+            count += matches.length;
+    }
+    return Math.max(1, count);
+}
+function mergeCssStyleString(existing, newStyles) {
+    const map = parseCssStyleString(existing);
+    for (const [k, v] of Object.entries(newStyles)) {
+        map.set(normalizeCssPropName(k), v);
+    }
+    return Array.from(map.entries())
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ');
+}
+function parseCssStyleString(existing) {
+    const map = new Map();
+    existing
+        .split(';')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .forEach(part => {
+        const [k, ...rest] = part.split(':');
+        if (!k || rest.length === 0)
+            return;
+        map.set(normalizeCssPropName(k), rest.join(':').trim());
+    });
+    return map;
+}
+function normalizeCssPropName(name) {
+    const trimmed = name.trim();
+    // Keep CSS custom properties.
+    if (trimmed.startsWith('--'))
+        return trimmed;
+    const lower = trimmed.toLowerCase();
+    // Fix common "lost dash" properties we may have written previously.
+    const lostDashMap = {
+        backgroundcolor: 'background-color',
+        backgroundimage: 'background-image',
+        backgroundsize: 'background-size',
+        backgroundposition: 'background-position',
+        backgroundrepeat: 'background-repeat',
+        bordercolor: 'border-color',
+        borderwidth: 'border-width',
+        borderstyle: 'border-style',
+        borderradius: 'border-radius',
+        boxshadow: 'box-shadow',
+        fontfamily: 'font-family',
+        fontsize: 'font-size',
+        fontweight: 'font-weight',
+        lineheight: 'line-height',
+        letterspacing: 'letter-spacing',
+        texttransform: 'text-transform',
+        textdecoration: 'text-decoration',
+        textshadow: 'text-shadow',
+        backdropfilter: 'backdrop-filter',
+    };
+    if (lostDashMap[lower])
+        return lostDashMap[lower];
+    // If already kebab-case (contains a dash), just lowercase it.
+    if (trimmed.includes('-'))
+        return lower;
+    // Convert camelCase/PascalCase to kebab-case.
+    return trimmed
+        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+        .replace(/_/g, '-')
+        .toLowerCase();
+}
+function updateHtmlInlineStyleAllTags(input, tagName, newStyles) {
+    const $ = cheerio.load(input, { xmlMode: false });
+    const elems = $(tagName).toArray();
+    if (elems.length === 0)
+        return input;
+    for (const el of elems) {
+        const currentStyle = $(el).attr('style') ?? '';
+        const merged = mergeCssStyleString(currentStyle, newStyles);
+        $(el).attr('style', merged);
+    }
+    return $.root().html() ?? input;
+}
+function updateHtmlInlineStyleAllTagsMany(input, tagNames, newStyles) {
+    const $ = cheerio.load(input, { xmlMode: false });
+    let changed = false;
+    for (const tagName of tagNames) {
+        const elems = $(tagName).toArray();
+        if (elems.length === 0)
+            continue;
+        for (const el of elems) {
+            const currentStyle = $(el).attr('style') ?? '';
+            const merged = mergeCssStyleString(currentStyle, newStyles);
+            if (merged !== currentStyle)
+                changed = true;
+            $(el).attr('style', merged);
+        }
+    }
+    return changed ? ($.root().html() ?? input) : input;
+}
+function updateJsxInlineStyleAllTags(input, filePathForProject, tagName, newStyles) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const lower = tagName.toLowerCase();
+    const elements = [];
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement)) {
+        const opening = el.getOpeningElement();
+        const name = opening.getTagNameNode().getText().toLowerCase();
+        if (name === lower)
+            elements.push(el);
+    }
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement)) {
+        const name = el.getTagNameNode().getText().toLowerCase();
+        if (name === lower)
+            elements.push(el);
+    }
+    if (elements.length === 0)
+        return input;
+    for (const node of elements) {
+        const opening = getOpeningElement(node);
+        if (!opening)
+            continue;
+        const styleAttr = opening
+            .getAttributes()
+            .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'style');
+        if (!styleAttr) {
+            opening.addAttribute({
+                name: 'style',
+                initializer: `{{ ${objectEntries(newStyles)} }}`
+            });
+            continue;
+        }
+        const init = styleAttr.getInitializer();
+        if (!init) {
+            styleAttr.setInitializer(`{{ ${objectEntries(newStyles)} }}`);
+            continue;
+        }
+        if (init.getKind() !== ts_morph_1.SyntaxKind.JsxExpression)
+            continue;
+        const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+        if (!expr || expr.getKind() !== ts_morph_1.SyntaxKind.ObjectLiteralExpression)
+            continue;
+        const obj = expr.asKindOrThrow(ts_morph_1.SyntaxKind.ObjectLiteralExpression);
+        for (const [k, v] of Object.entries(newStyles)) {
+            const existing = obj.getProperty(k);
+            const initializer = `'${v.replace(/'/g, "\\'")}'`;
+            if (!existing) {
+                obj.addPropertyAssignment({ name: k, initializer });
+            }
+            else if (existing.getKind() === ts_morph_1.SyntaxKind.PropertyAssignment) {
+                existing.asKindOrThrow(ts_morph_1.SyntaxKind.PropertyAssignment).setInitializer(initializer);
+            }
+        }
+    }
+    return sourceFile.getFullText();
+}
+function updateJsxInlineStyleAllTagsMany(input, filePathForProject, tagNames, newStyles) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const tagSet = new Set(tagNames.map(t => t.toLowerCase()));
+    const elements = [];
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement)) {
+        const opening = el.getOpeningElement();
+        const name = opening.getTagNameNode().getText().toLowerCase();
+        if (tagSet.has(name))
+            elements.push(el);
+    }
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement)) {
+        const name = el.getTagNameNode().getText().toLowerCase();
+        if (tagSet.has(name))
+            elements.push(el);
+    }
+    if (elements.length === 0)
+        return input;
+    for (const node of elements) {
+        const opening = getOpeningElement(node);
+        if (!opening)
+            continue;
+        const styleAttr = opening
+            .getAttributes()
+            .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'style');
+        if (!styleAttr) {
+            opening.addAttribute({
+                name: 'style',
+                initializer: `{{ ${objectEntries(newStyles)} }}`
+            });
+            continue;
+        }
+        const init = styleAttr.getInitializer();
+        if (!init) {
+            styleAttr.setInitializer(`{{ ${objectEntries(newStyles)} }}`);
+            continue;
+        }
+        if (init.getKind() !== ts_morph_1.SyntaxKind.JsxExpression)
+            continue;
+        const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+        if (!expr || expr.getKind() !== ts_morph_1.SyntaxKind.ObjectLiteralExpression)
+            continue;
+        const obj = expr.asKindOrThrow(ts_morph_1.SyntaxKind.ObjectLiteralExpression);
+        for (const [k, v] of Object.entries(newStyles)) {
+            const existing = obj.getProperty(k);
+            const initializer = `'${v.replace(/'/g, "\\'")}'`;
+            if (!existing) {
+                obj.addPropertyAssignment({ name: k, initializer });
+            }
+            else if (existing.getKind() === ts_morph_1.SyntaxKind.PropertyAssignment) {
+                existing.asKindOrThrow(ts_morph_1.SyntaxKind.PropertyAssignment).setInitializer(initializer);
+            }
+        }
+    }
+    return sourceFile.getFullText();
+}
+function parseTranslateFromTransform(transform) {
+    if (!transform)
+        return [0, 0];
+    // Only support translate(xpx, ypx) for MVP.
+    const m = transform.match(/translate\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*\)/i);
+    if (!m)
+        return [0, 0];
+    const x = Number(m[1]);
+    const y = Number(m[2]);
+    return [Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0];
+}
+function getHtmlTranslate(input, lineNumber) {
+    const lines = input.split(/\r?\n/);
+    const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
+    const line = lines[idx] ?? '';
+    const m = line.match(/<\s*([A-Za-z][A-Za-z0-9:_-]*)\b/);
+    if (!m)
+        return [0, 0];
+    const tag = m[1];
+    const occurrence = countOpeningTagOccurrencesUpToLine(lines, tag, idx);
+    const $ = cheerio.load(input, { xmlMode: false });
+    const elems = $(tag).toArray();
+    if (elems.length === 0)
+        return [0, 0];
+    const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
+    const style = $(el).attr('style') ?? '';
+    const styleMap = parseCssStyleString(style);
+    return parseTranslateFromTransform(styleMap.get('transform'));
+}
+function getJsxTranslate(input, filePathForProject, lineNumber, columnNumber, ctx) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return [0, 0];
+    const opening = getOpeningElement(target);
+    if (!opening)
+        return [0, 0];
+    const styleAttr = opening
+        .getAttributes()
+        .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'style');
+    if (!styleAttr)
+        return [0, 0];
+    const init = styleAttr.getInitializer();
+    if (!init || init.getKind() !== ts_morph_1.SyntaxKind.JsxExpression)
+        return [0, 0];
+    const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+    if (!expr || expr.getKind() !== ts_morph_1.SyntaxKind.ObjectLiteralExpression)
+        return [0, 0];
+    const obj = expr.asKindOrThrow(ts_morph_1.SyntaxKind.ObjectLiteralExpression);
+    const prop = obj.getProperty('transform');
+    if (!prop || prop.getKind() !== ts_morph_1.SyntaxKind.PropertyAssignment)
+        return [0, 0];
+    const initializer = prop.asKindOrThrow(ts_morph_1.SyntaxKind.PropertyAssignment).getInitializer();
+    if (!initializer)
+        return [0, 0];
+    const raw = initializer.getText();
+    const unquoted = raw.replace(/^['"]|['"]$/g, '');
+    return parseTranslateFromTransform(unquoted);
+}
+function updateJsxInlineStyle(input, filePathForProject, lineNumber, newStyles, columnNumber, ctx) {
+    const filteredStyles = normalizeInlineStylePatch(newStyles);
+    if (Object.keys(filteredStyles).length === 0)
+        return input;
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return input;
+    const opening = getOpeningElement(target);
+    if (!opening)
+        return input;
+    const styleAttr = opening
+        .getAttributes()
+        .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'style');
+    if (!styleAttr) {
+        opening.addAttribute({
+            name: 'style',
+            initializer: `{{ ${objectEntries(filteredStyles)} }}`
+        });
+        return sourceFile.getFullText();
+    }
+    const init = styleAttr.getInitializer();
+    if (!init) {
+        styleAttr.setInitializer(`{{ ${objectEntries(filteredStyles)} }}`);
+        return sourceFile.getFullText();
+    }
+    // Expect style={{ ... }}
+    if (init.getKind() !== ts_morph_1.SyntaxKind.JsxExpression) {
+        return input;
+    }
+    const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+    if (!expr || expr.getKind() !== ts_morph_1.SyntaxKind.ObjectLiteralExpression) {
+        return input;
+    }
+    const obj = expr.asKindOrThrow(ts_morph_1.SyntaxKind.ObjectLiteralExpression);
+    for (const [k, v] of Object.entries(filteredStyles)) {
+        const existing = obj.getProperty(k);
+        const initializer = `'${v.replace(/'/g, "\\'")}'`;
+        if (!existing) {
+            obj.addPropertyAssignment({ name: k, initializer });
+        }
+        else if (existing.getKind() === ts_morph_1.SyntaxKind.PropertyAssignment) {
+            existing.asKindOrThrow(ts_morph_1.SyntaxKind.PropertyAssignment).setInitializer(initializer);
+        }
+    }
+    return sourceFile.getFullText();
+}
+function unquoteStringLiteralText(raw) {
+    return raw.replace(/^['"]|['"]$/g, '');
+}
+function getJsxAttributeStringValue(attr) {
+    const init = attr.getInitializer();
+    if (!init)
+        return undefined;
+    if (init.getKind() === ts_morph_1.SyntaxKind.StringLiteral) {
+        return unquoteStringLiteralText(init.getText());
+    }
+    if (init.getKind() === ts_morph_1.SyntaxKind.JsxExpression) {
+        const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+        if (!expr)
+            return undefined;
+        if (expr.getKind() === ts_morph_1.SyntaxKind.StringLiteral) {
+            return unquoteStringLiteralText(expr.getText());
+        }
+    }
+    return undefined;
+}
+function findJsxNodeByDataLui(sourceFile, elementId) {
+    const want = String(elementId || '');
+    if (!want)
+        return undefined;
+    const candidates = [];
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement))
+        candidates.push(el);
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement))
+        candidates.push(el);
+    for (const node of candidates) {
+        const opening = getOpeningElement(node);
+        if (!opening)
+            continue;
+        const attr = opening
+            .getAttributes()
+            .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'data-lui');
+        if (!attr)
+            continue;
+        const val = getJsxAttributeStringValue(attr);
+        if (val === want)
+            return node;
+    }
+    return undefined;
+}
+function updateJsxInlineStyleByDataLui(input, filePathForProject, elementId, newStyles) {
+    const filteredStyles = normalizeInlineStylePatch(newStyles);
+    if (Object.keys(filteredStyles).length === 0)
+        return input;
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findJsxNodeByDataLui(sourceFile, elementId);
+    if (!target)
+        return input;
+    const opening = getOpeningElement(target);
+    if (!opening)
+        return input;
+    const styleAttr = opening
+        .getAttributes()
+        .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'style');
+    if (!styleAttr) {
+        opening.addAttribute({
+            name: 'style',
+            initializer: `{{ ${objectEntries(filteredStyles)} }}`
+        });
+        return sourceFile.getFullText();
+    }
+    const init = styleAttr.getInitializer();
+    if (!init) {
+        styleAttr.setInitializer(`{{ ${objectEntries(filteredStyles)} }}`);
+        return sourceFile.getFullText();
+    }
+    // Expect style={{ ... }}
+    if (init.getKind() !== ts_morph_1.SyntaxKind.JsxExpression)
+        return input;
+    const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+    if (!expr || expr.getKind() !== ts_morph_1.SyntaxKind.ObjectLiteralExpression)
+        return input;
+    const obj = expr.asKindOrThrow(ts_morph_1.SyntaxKind.ObjectLiteralExpression);
+    for (const [k, v] of Object.entries(filteredStyles)) {
+        const existing = obj.getProperty(k);
+        const initializer = `'${v.replace(/'/g, "\\'")}'`;
+        if (!existing) {
+            obj.addPropertyAssignment({ name: k, initializer });
+        }
+        else if (existing.getKind() === ts_morph_1.SyntaxKind.PropertyAssignment) {
+            existing.asKindOrThrow(ts_morph_1.SyntaxKind.PropertyAssignment).setInitializer(initializer);
+        }
+    }
+    return sourceFile.getFullText();
+}
+function updateJsxTextByDataLui(input, filePathForProject, elementId, newText) {
+    // Keep same safety: refuse braces.
+    if (/[{}]/.test(newText))
+        return input;
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findJsxNodeByDataLui(sourceFile, elementId);
+    if (!target)
+        return input;
+    if (target.getKind() !== ts_morph_1.SyntaxKind.JsxElement)
+        return input;
+    const jsxEl = target;
+    const opening = jsxEl.getOpeningElement();
+    const closing = jsxEl.getClosingElement();
+    if (!closing)
+        return input;
+    const innerTextNodes = jsxEl.getChildrenOfKind(ts_morph_1.SyntaxKind.JsxText);
+    const hasNested = jsxEl.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement).length > 1 ||
+        jsxEl.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement).length > 0;
+    if (hasNested)
+        return input;
+    if (innerTextNodes.length === 0)
+        return input;
+    const start = opening.getEnd();
+    const end = closing.getStart();
+    const inner = input.slice(start, end);
+    const leadingWs = inner.match(/^\s*/)?.[0] ?? '';
+    const trailingWs = inner.match(/\s*$/)?.[0] ?? '';
+    const nextInner = `${leadingWs}${newText}${trailingWs}`;
+    return input.slice(0, start) + nextInner + input.slice(end);
+}
+function objectEntries(styles) {
+    return Object.entries(styles)
+        .filter(([, v]) => typeof v === 'string' && v.trim().length > 0)
+        .map(([k, v]) => `${k}: '${v.replace(/'/g, "\\'")}'`)
+        .join(', ');
+}
+function normalizeInlineStylePatch(styles) {
+    const out = {};
+    for (const [k, v] of Object.entries(styles || {})) {
+        if (typeof v !== 'string')
+            continue;
+        const trimmed = v.trim();
+        if (!trimmed)
+            continue;
+        out[k] = trimmed;
+    }
+    return out;
+}
+function findNearestJsxNodeAtLine(sourceFile, lineNumber) {
+    const candidates = [];
+    // Expand search to ±2 lines to handle off-by-one from source maps / Babel transforms.
+    const minLine = lineNumber - 2;
+    const maxLine = lineNumber + 2;
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement)) {
+        const start = el.getStartLineNumber();
+        const end = el.getEndLineNumber();
+        if (start <= maxLine && minLine <= end)
+            candidates.push(el);
+    }
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement)) {
+        const start = el.getStartLineNumber();
+        const end = el.getEndLineNumber();
+        if (start <= maxLine && minLine <= end)
+            candidates.push(el);
+    }
+    if (candidates.length === 0)
+        return;
+    // Prefer elements whose start line is closest to the target, then smallest span.
+    candidates.sort((a, b) => {
+        const aDist = Math.abs(a.getStartLineNumber() - lineNumber);
+        const bDist = Math.abs(b.getStartLineNumber() - lineNumber);
+        if (aDist !== bDist)
+            return aDist - bDist;
+        return (a.getEnd() - a.getStart()) - (b.getEnd() - b.getStart());
+    });
+    return candidates[0];
+}
+function findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx) {
+    const col = typeof columnNumber === 'number' && Number.isFinite(columnNumber) && columnNumber > 0
+        ? columnNumber
+        : undefined;
+    // If we have no extra info, keep existing behavior.
+    if (!col && !ctx?.tagName)
+        return findNearestJsxNodeAtLine(sourceFile, lineNumber);
+    // Expand search to ±2 lines to handle off-by-one from source maps / Babel transforms.
+    const minLine = lineNumber - 2;
+    const maxLine = lineNumber + 2;
+    const candidates = [];
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxElement)) {
+        const start = el.getStartLineNumber();
+        const end = el.getEndLineNumber();
+        if (start <= maxLine && minLine <= end)
+            candidates.push(el);
+    }
+    for (const el of sourceFile.getDescendantsOfKind(ts_morph_1.SyntaxKind.JsxSelfClosingElement)) {
+        const start = el.getStartLineNumber();
+        const end = el.getEndLineNumber();
+        if (start <= maxLine && minLine <= end)
+            candidates.push(el);
+    }
+    if (candidates.length === 0)
+        return;
+    const preferredDomTag = ctx?.tagName ? String(ctx.tagName).toLowerCase() : undefined;
+    const preferredText = ctx?.text ? String(ctx.text).trim().slice(0, 40) : undefined;
+    let best;
+    let bestScore = -Infinity;
+    for (const node of candidates) {
+        const opening = getOpeningElement(node);
+        const openStart = opening ? opening.getStart() : node.getStart();
+        const lc = sourceFile.getLineAndColumnAtPos(openStart);
+        const startLine = lc.line;
+        const startCol = lc.column;
+        let score = 0;
+        // Prefer nodes that start near the debugSource line/col.
+        score -= Math.abs(startLine - lineNumber) * 200;
+        if (col)
+            score -= Math.abs(startCol - col) * 3;
+        // Prefer smaller (more specific) nodes when tied.
+        score -= Math.min(20000, node.getEnd() - node.getStart()) * 0.001;
+        if (opening && opening.getStartLineNumber() === lineNumber)
+            score += 25;
+        if (opening && preferredDomTag) {
+            try {
+                const jsxTag = opening.getTagNameNode().getText().toLowerCase();
+                // Strongly prefer exact DOM-tag matches (e.g. <button>).
+                if (jsxTag === preferredDomTag)
+                    score += 60;
+            }
+            catch { }
+        }
+        if (preferredText && node.getKind() === ts_morph_1.SyntaxKind.JsxElement) {
+            try {
+                const el = node;
+                const innerText = el.getChildrenOfKind(ts_morph_1.SyntaxKind.JsxText).map(t => t.getText()).join(' ').replace(/\s+/g, ' ').trim();
+                if (innerText && innerText.includes(preferredText))
+                    score += 30;
+            }
+            catch { }
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            best = node;
+        }
+    }
+    return best ?? findNearestJsxNodeAtLine(sourceFile, lineNumber);
+}
+function getOpeningElement(node) {
+    if (node.getKind() === ts_morph_1.SyntaxKind.JsxSelfClosingElement) {
+        return node;
+    }
+    if (node.getKind() === ts_morph_1.SyntaxKind.JsxElement) {
+        return node.getOpeningElement();
+    }
+    return;
+}
+// ===== i18n Support =====
+/**
+ * Common i18n translation file locations to search.
+ */
+const I18N_FILE_PATTERNS = [
+    'src/locales/en.json',
+    'src/locales/en/translation.json',
+    'public/locales/en/translation.json',
+    'public/locales/en.json',
+    'locales/en/translation.json',
+    'locales/en.json',
+    'src/i18n/en.json',
+    'i18n/en.json',
+    'src/translations/en.json',
+    'translations/en.json',
+];
+/**
+ * Extracts the i18n key from a JSX element's content if it uses t('key') or {t('key')} pattern.
+ */
+function extractI18nKeyFromJsxContent(input, filePathForProject, lineNumber, columnNumber, ctx) {
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return undefined;
+    if (target.getKind() !== ts_morph_1.SyntaxKind.JsxElement)
+        return undefined;
+    const jsxEl = target;
+    const opening = jsxEl.getOpeningElement();
+    const closing = jsxEl.getClosingElement();
+    if (!closing)
+        return undefined;
+    const start = opening.getEnd();
+    const end = closing.getStart();
+    const inner = input.slice(start, end).trim();
+    // Match patterns like {t('key')}, {t("key")}, t('key'), t("key")
+    const patterns = [
+        /^\{t\(['"]([^'"]+)['"]\)\}$/,
+        /^\{t\(['"]([^'"]+)['"],\s*\{[^}]*\}\)\}$/, // t('key', { options })
+        /^t\(['"]([^'"]+)['"]\)$/,
+    ];
+    for (const pattern of patterns) {
+        const match = inner.match(pattern);
+        if (match?.[1]) {
+            return match[1];
+        }
+    }
+    return undefined;
+}
+/**
+ * Find the i18n translation file in the workspace.
+ */
+function findI18nFile(fileUri) {
+    // Start from the file's directory and walk up to find project root
+    let dir = path.dirname(fileUri.fsPath);
+    const maxDepth = 10;
+    let depth = 0;
+    while (depth < maxDepth) {
+        // Check if this looks like a project root (has package.json)
+        const pkgPath = path.join(dir, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            // Search for translation files from this root
+            for (const pattern of I18N_FILE_PATTERNS) {
+                const candidate = path.join(dir, pattern);
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir)
+            break;
+        dir = parent;
+        depth++;
+    }
+    return undefined;
+}
+/**
+ * Get a nested value from an object using a dot-separated key.
+ */
+function getNestedValue(obj, key) {
+    const parts = key.split('.');
+    let current = obj;
+    for (const part of parts) {
+        if (current == null || typeof current !== 'object')
+            return undefined;
+        current = current[part];
+    }
+    return current;
+}
+/**
+ * Set a nested value in an object using a dot-separated key.
+ */
+function setNestedValue(obj, key, value) {
+    const parts = key.split('.');
+    let current = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (current[part] == null || typeof current[part] !== 'object') {
+            current[part] = {};
+        }
+        current = current[part];
+    }
+    current[parts[parts.length - 1]] = value;
+}
+/**
+ * Detect if the JSX uses i18n and update the translation file if so.
+ */
+function detectAndUpdateI18n(input, fileUri, lineNumber, newText, columnNumber, ctx) {
+    const i18nKey = extractI18nKeyFromJsxContent(input, fileUri.fsPath, lineNumber, columnNumber, ctx);
+    if (!i18nKey) {
+        return undefined; // Not an i18n element, let caller handle normally
+    }
+    // Find the translation file
+    const i18nFile = findI18nFile(fileUri);
+    if (!i18nFile) {
+        return {
+            changed: false,
+            i18nKey,
+            reason: 'i18n-detected-but-not-found',
+        };
+    }
+    try {
+        // Read and parse the translation file
+        const content = fs.readFileSync(i18nFile, 'utf8');
+        const translations = JSON.parse(content);
+        // Check if the key exists
+        const currentValue = getNestedValue(translations, i18nKey);
+        if (currentValue === undefined) {
+            return {
+                changed: false,
+                i18nKey,
+                i18nFile,
+                reason: 'i18n-detected-but-not-found',
+            };
+        }
+        // Update the value
+        setNestedValue(translations, i18nKey, newText);
+        // Write back the file with nice formatting
+        fs.writeFileSync(i18nFile, JSON.stringify(translations, null, 2) + '\n', 'utf8');
+        return {
+            changed: true,
+            i18nKey,
+            i18nFile,
+            reason: 'i18n-updated',
+        };
+    }
+    catch (err) {
+        return {
+            changed: false,
+            i18nKey,
+            i18nFile,
+            reason: 'i18n-detected-but-not-found',
+        };
+    }
+}
+//# sourceMappingURL=CodeModifier.js.map
