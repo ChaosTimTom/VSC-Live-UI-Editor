@@ -91,6 +91,7 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 	</div>
 
 	<script nonce="${nonce}">
+		const iframeOrigin = ${JSON.stringify(iframeOrigin)};
 		const vscode = (typeof acquireVsCodeApi === 'function')
 			? acquireVsCodeApi()
 			: {
@@ -206,6 +207,14 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 		});
 
 		window.addEventListener('message', (ev) => {
+			// SECURITY: Only accept messages coming from our iframe.
+			// Without this, any other frame/content could message the webview and attempt to trigger edits.
+			try {
+				if (!iframe || ev.source !== iframe.contentWindow) return;
+				if (typeof ev.origin === 'string' && ev.origin !== iframeOrigin) return;
+			} catch {
+				return;
+			}
 			const data = ev.data;
 			if (!data || typeof data !== 'object') return;
 			if (data.__liveUiEditor === true && data.message) {

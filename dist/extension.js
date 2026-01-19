@@ -50,6 +50,7 @@ const tauriShim_1 = require("./appMode/tauriShim");
 const appUtils_1 = require("./appMode/appUtils");
 const viteUtils_1 = require("./appMode/viteUtils");
 const detachedDevServer_1 = require("./appMode/detachedDevServer");
+const path = __importStar(require("path"));
 const cp = __importStar(require("child_process"));
 function activate(context) {
     const output = vscode.window.createOutputChannel('Live UI Editor');
@@ -87,7 +88,52 @@ function activate(context) {
         s = s.replace(/^file:\/\//i, '');
         s = s.replace(/^\/\/+/, '');
         s = s.replace(/^\.\//, '');
+        s = s.replace(/\\/g, '/');
         return s;
+    };
+    const isLikelyUnsafeRelativePath = (p) => {
+        const s = String(p || '').replace(/\\/g, '/');
+        if (!s)
+            return true;
+        if (s.startsWith('..') || s.includes('/../'))
+            return true;
+        return false;
+    };
+    const isWithinBasePath = (baseFsPath, candidateFsPath) => {
+        try {
+            const rel = path.relative(baseFsPath, candidateFsPath);
+            if (rel === '')
+                return true;
+            return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+        }
+        catch {
+            return false;
+        }
+    };
+    const resolveFileIdToUriAppMode = (fileId, appRoot) => {
+        const u = resolveFileIdToUri(fileId);
+        if (!u)
+            return undefined;
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const candidate = u.fsPath;
+        const bases = [];
+        if (workspaceFolder)
+            bases.push(workspaceFolder.uri.fsPath);
+        if (appRoot)
+            bases.push(appRoot.fsPath);
+        if (bases.length === 0)
+            return undefined;
+        return bases.some(b => isWithinBasePath(b, candidate)) ? u : undefined;
+    };
+    const isLocalhostUrl = (urlString) => {
+        try {
+            const u = new URL(urlString);
+            const host = (u.hostname || '').toLowerCase();
+            return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+        }
+        catch {
+            return false;
+        }
     };
     const resolveFileIdToUri = (fileId) => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -114,6 +160,8 @@ function activate(context) {
         }
         const normalized = normalizePossiblyBundlerPath(raw);
         if (workspaceFolder) {
+            if (isLikelyUnsafeRelativePath(normalized))
+                return undefined;
             return vscode.Uri.joinPath(workspaceFolder.uri, normalized);
         }
         return undefined;
@@ -617,6 +665,11 @@ export default function liveUiEditorBabelPlugin(babel) {
             });
             if (!url)
                 return;
+            if (!isLocalhostUrl(url)) {
+                const confirm = await vscode.window.showWarningMessage('Live UI Editor (App Mode): For safety, App Mode is intended for localhost dev servers. Using a non-local URL can allow a webpage to attempt code edits. Continue anyway?', { modal: true }, 'Continue', 'Cancel');
+                if (confirm !== 'Continue')
+                    return;
+            }
             origin = url;
         }
         output.appendLine(`[appMode] target=${origin} framework=${appFramework}`);
@@ -648,6 +701,11 @@ export default function liveUiEditorBabelPlugin(babel) {
                 });
                 if (!url)
                     return;
+                if (!isLocalhostUrl(url)) {
+                    const confirm = await vscode.window.showWarningMessage('Live UI Editor (App Mode): For safety, App Mode is intended for localhost dev servers. Using a non-local URL can allow a webpage to attempt code edits. Continue anyway?', { modal: true }, 'Continue', 'Cancel');
+                    if (confirm !== 'Continue')
+                        return;
+                }
                 origin = url;
                 ready = await (0, viteUtils_1.waitForHttpReady)(origin, 15000);
                 if (!ready) {
@@ -685,6 +743,18 @@ export default function liveUiEditorBabelPlugin(babel) {
         let layoutApplyEnabled = false;
         let warnedLayoutApplyBlocked = false;
         let warnedUnmappedSelection = false;
+        let warnedAppModePathBlocked = false;
+        const resolveAppModeFileIdToUri = (fileId) => {
+            const u = resolveFileIdToUriAppMode(fileId, appRoot);
+            if (!u) {
+                output.appendLine(`[appMode] Blocked fileId outside workspace/app root: ${fileId}`);
+                if (!warnedAppModePathBlocked) {
+                    warnedAppModePathBlocked = true;
+                    void vscode.window.showWarningMessage('Live UI Editor (App Mode): Blocked an attempted edit to a file outside your workspace/app root (safety guardrail).');
+                }
+            }
+            return u;
+        };
         function pendingKey(e) {
             if (typeof e.elementId === 'string' && e.elementId) {
                 return [e.kind, e.file, e.elementId].join('|');
@@ -726,7 +796,7 @@ export default function liveUiEditorBabelPlugin(babel) {
             const items = [];
             // Process one file at a time
             for (const [fileId, fileEdits] of editsByFile) {
-                const targetUri = resolveFileIdToUri(fileId);
+                const targetUri = resolveAppModeFileIdToUri(fileId);
                 if (!targetUri) {
                     for (const e of fileEdits) {
                         items.push({
@@ -736,7 +806,7 @@ export default function liveUiEditorBabelPlugin(babel) {
                             column: e.column,
                             elementId: e.elementId,
                             ok: false,
-                            reason: 'resolveFileIdToUri failed',
+                            reason: 'blocked or unresolved file path',
                         });
                         failedCount++;
                     }
@@ -968,7 +1038,7 @@ export default function liveUiEditorBabelPlugin(babel) {
                     return;
                 }
                 if (message.command === 'elementSelected') {
-                    const targetUri = resolveFileIdToUri(message.file);
+                    const targetUri = resolveAppModeFileIdToUri(message.file);
                     if (!targetUri)
                         return;
                     lastSelected = {
@@ -1031,7 +1101,7 @@ export default function liveUiEditorBabelPlugin(babel) {
                     return;
                 }
                 if (message.command === 'elementClicked') {
-                    const targetUri = resolveFileIdToUri(message.file);
+                    const targetUri = resolveAppModeFileIdToUri(message.file);
                     if (!targetUri)
                         return;
                     const doc = await vscode.workspace.openTextDocument(targetUri);
@@ -1106,7 +1176,7 @@ export default function liveUiEditorBabelPlugin(babel) {
                 if (message.command === 'deleteElement') {
                     output.appendLine(`[deleteElement] ${message.file}:${message.line}`);
                     try {
-                        const targetUri = resolveFileIdToUri(message.file);
+                        const targetUri = resolveAppModeFileIdToUri(message.file);
                         if (!targetUri) {
                             vscode.window.showErrorMessage('Live UI Editor: Could not resolve file path for deletion.');
                             return;

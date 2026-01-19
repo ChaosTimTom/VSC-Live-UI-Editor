@@ -131,6 +131,8 @@ Notes:
 - App Mode forces your dev server to bind to `127.0.0.1` (for consistent iframe/CSP behavior).
 - Vite is started with `--host 127.0.0.1 --port <port> --strictPort`.
 - Next.js is started with `--hostname 127.0.0.1 --port <port>`.
+- If you paste a non-local URL, App Mode will require a safety confirmation.
+- App Mode will refuse to apply edits to files outside your workspace/app root.
 
 ### 2) Use Edit vs Browse mode
 
