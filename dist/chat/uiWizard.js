@@ -35,9 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerUiWizard = registerUiWizard;
 const vscode = __importStar(require("vscode"));
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-const crypto = __importStar(require("crypto"));
 function stripCodeFences(s) {
     const trimmed = s.trim();
     if (!trimmed.startsWith('```'))
@@ -454,61 +451,6 @@ async function imageUriToDataUrl(uri) {
     const base64 = Buffer.from(bytes).toString('base64');
     return `data:${mime};base64,${base64}`;
 }
-function findNearestPackageRoot(startFsPath) {
-    let dir = fs.existsSync(startFsPath) && fs.statSync(startFsPath).isDirectory()
-        ? startFsPath
-        : path.dirname(startFsPath);
-    for (let i = 0; i < 20; i++) {
-        const pkg = path.join(dir, 'package.json');
-        if (fs.existsSync(pkg))
-            return dir;
-        const parent = path.dirname(dir);
-        if (!parent || parent === dir)
-            break;
-        dir = parent;
-    }
-    return;
-}
-function sanitizeFileBaseName(name) {
-    return name
-        .replace(/\.[^./\\]+$/g, '')
-        .replace(/[^a-zA-Z0-9_-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^[-_]+|[-_]+$/g, '')
-        .slice(0, 40) || 'image';
-}
-async function copyImageIntoPublicAssets(imageUri, anchorSourceUri) {
-    const appRoot = findNearestPackageRoot(anchorSourceUri.fsPath);
-    if (!appRoot)
-        return;
-    const destDir = path.join(appRoot, 'public', 'live-ui-assets');
-    try {
-        fs.mkdirSync(destDir, { recursive: true });
-    }
-    catch {
-        // If we can't create the folder, fall back.
-        return;
-    }
-    const ext = path.extname(imageUri.fsPath || '').toLowerCase() || '.png';
-    const base = sanitizeFileBaseName(path.basename(imageUri.fsPath || 'image'));
-    for (let attempt = 0; attempt < 10; attempt++) {
-        const suffix = crypto.randomBytes(3).toString('hex');
-        const fileName = `${base}-${suffix}${ext}`;
-        const destPath = path.join(destDir, fileName);
-        if (fs.existsSync(destPath))
-            continue;
-        const destUri = vscode.Uri.file(destPath);
-        try {
-            // workspace.fs.copy works across local/remote if supported.
-            await vscode.workspace.fs.copy(imageUri, destUri, { overwrite: false });
-            return { publicUrl: `/live-ui-assets/${fileName}`, destUri, appRoot };
-        }
-        catch {
-            // Try a new name.
-        }
-    }
-    return;
-}
 const ALLOWED_STYLE_KEYS = new Set([
     'width',
     'height',
@@ -834,7 +776,7 @@ async function applyUiEdit(codeModifier, selected, prompt) {
     const wantsMoveTo = cmd.moveToX !== undefined || cmd.moveToY !== undefined;
     const wantsMoveBy = cmd.moveDx !== undefined || cmd.moveDy !== undefined;
     if (wantsMoveTo || wantsMoveBy) {
-        const [currentX, currentY] = await codeModifier.getTranslate(selected.uri, selected.line, selected.column, selected.elementContext);
+        const [currentX, currentY] = await codeModifier.getTranslate(selected.uri, selected.line);
         const nextX = wantsMoveTo ? (cmd.moveToX ?? currentX) : (currentX + (cmd.moveDx ?? 0));
         const nextY = wantsMoveTo ? (cmd.moveToY ?? currentY) : (currentY + (cmd.moveDy ?? 0));
         styles.transform = `translate(${Math.round(nextX)}px, ${Math.round(nextY)}px)`;
@@ -845,13 +787,7 @@ async function applyUiEdit(codeModifier, selected, prompt) {
             message: "Try: `width 240`, `height 48`, `move right 20`, `move up 10`, or `x 40 y 12`. For styling (color/font/shape/shadow/image), just describe what you want and I'll try to apply it using the model."
         };
     }
-    let changed = false;
-    if (selected.elementId && typeof codeModifier.updateStyleByElementId === 'function') {
-        changed = await codeModifier.updateStyleByElementId(selected.uri, selected.elementId, styles);
-    }
-    if (!changed) {
-        changed = await codeModifier.updateStyle(selected.uri, selected.line, styles, selected.column, selected.elementContext);
-    }
+    const changed = await codeModifier.updateStyle(selected.uri, selected.line, styles);
     return {
         changed,
         message: changed
@@ -1122,7 +1058,7 @@ function registerUiWizard(context, deps) {
         }
         const selected = deps.getSelected();
         if (!selected) {
-            stream.markdown('Select an element in the Live UI view first (click it), then ask me to change it.');
+            stream.markdown('Select an element in the Live UI view first, then ask me to change it. (App Mode: switch to **Edit** in the top bar, then click an element.)');
             stream.markdown("\n\nSay `commands` to see everything I can do.");
             stream.markdown("\n\nExamples: `width 240`, `height 48`, `move right 20`, `move up 10`, `x 40 y 12`.");
             return;
@@ -1208,7 +1144,7 @@ function registerUiWizard(context, deps) {
                 const pick = await vscode.window.showOpenDialog({
                     canSelectFiles: true,
                     canSelectMany: false,
-                    openLabel: 'Use as UI background image',
+                    openLabel: 'Use as UI element image',
                     filters: {
                         Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
                     }
@@ -1217,32 +1153,15 @@ function registerUiWizard(context, deps) {
                     stream.markdown('No image selected.');
                     return;
                 }
-                // Prefer copying into the app's /public so the code change stays small and build-friendly.
-                const copied = await copyImageIntoPublicAssets(pick[0], selected.uri);
-                const imageRef = copied
-                    ? copied.publicUrl
-                    : await imageUriToDataUrl(pick[0]);
+                const dataUrl = await imageUriToDataUrl(pick[0]);
                 const styles = {
-                    backgroundImage: `url('${imageRef}')`,
+                    backgroundImage: `url('${dataUrl}')`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     backgroundRepeat: 'no-repeat',
                 };
-                let changed = false;
-                if (selected.elementId && typeof deps.codeModifier.updateStyleByElementId === 'function') {
-                    changed = await deps.codeModifier.updateStyleByElementId(selected.uri, selected.elementId, styles);
-                }
-                if (!changed) {
-                    changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, styles, selected.column, selected.elementContext);
-                }
-                if (changed) {
-                    stream.markdown(copied
-                        ? `Applied background image (copied to ${copied.publicUrl}).`
-                        : 'Applied background image (embedded as data URL).');
-                }
-                else {
-                    stream.markdown('No change needed.');
-                }
+                const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, styles);
+                stream.markdown(changed ? 'Applied background image (embedded as data URL).' : 'No change needed.');
                 if (changed)
                     await deps.refreshWebviewIfOpen(selected.uri);
                 return;
@@ -1323,13 +1242,7 @@ function registerUiWizard(context, deps) {
                     return;
                 }
                 await pushUndoSnapshot('apply style to selected element', [selected.uri]);
-                let changed = false;
-                if (selected.elementId && typeof deps.codeModifier.updateStyleByElementId === 'function') {
-                    changed = await deps.codeModifier.updateStyleByElementId(selected.uri, selected.elementId, patch);
-                }
-                if (!changed) {
-                    changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, patch);
-                }
+                const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, patch);
                 await deps.clearPreviewIfOpen();
                 stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
                 if (changed)

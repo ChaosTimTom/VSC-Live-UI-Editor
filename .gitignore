@@ -37,3 +37,8 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Local notes / planning
+last convo.md
+LIVE_UI_EDITOR_V2_PLAN.md
+VSCode Live UI Editor — Master Proj.md

@@ -48,6 +48,39 @@ function isFromWebviewMessage(value) {
         const classOk = c.classList === undefined || (Array.isArray(c.classList) && c.classList.every(x => typeof x === 'string'));
         return ctxIdOk && roleOk && hrefOk && typeOk && textOk && classOk;
     }
+    if (v.command === 'elementUnmapped') {
+        const elementIdOk = v.elementId === undefined || typeof v.elementId === 'string';
+        if (!elementIdOk)
+            return false;
+        const inlineOk = v.inlineStyle === undefined || typeof v.inlineStyle === 'string';
+        if (!inlineOk)
+            return false;
+        if (v.computedStyle !== undefined) {
+            if (!v.computedStyle || typeof v.computedStyle !== 'object')
+                return false;
+            const cs = v.computedStyle;
+            for (const [k, val] of Object.entries(cs)) {
+                if (typeof k !== 'string')
+                    return false;
+                if (typeof val !== 'string')
+                    return false;
+            }
+        }
+        if (v.elementContext === undefined)
+            return true;
+        if (!v.elementContext || typeof v.elementContext !== 'object')
+            return false;
+        const c = v.elementContext;
+        if (typeof c.tagName !== 'string')
+            return false;
+        const ctxIdOk = c.id === undefined || typeof c.id === 'string';
+        const roleOk = c.role === undefined || typeof c.role === 'string';
+        const hrefOk = c.href === undefined || typeof c.href === 'string';
+        const typeOk = c.type === undefined || typeof c.type === 'string';
+        const textOk = c.text === undefined || typeof c.text === 'string';
+        const classOk = c.classList === undefined || (Array.isArray(c.classList) && c.classList.every(x => typeof x === 'string'));
+        return ctxIdOk && roleOk && hrefOk && typeOk && textOk && classOk;
+    }
     if (v.command === 'targetsList') {
         if (typeof v.requestId !== 'string')
             return false;
@@ -112,6 +145,9 @@ function isFromWebviewMessage(value) {
                 return false;
         }
         return true;
+    }
+    if (v.command === 'setTauriShim') {
+        return typeof v.enabled === 'boolean';
     }
     if (v.command === 'applyPendingEdits') {
         return true;

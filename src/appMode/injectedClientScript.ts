@@ -426,7 +426,16 @@ export const injectedClientScript = String.raw`
 				var fiber = findFiberFromDom(el);
 				ds = fiber ? getDebugSourceFromFiber(fiber) : undefined;
 			}
-			if (!ds) return;
+			if (!ds) {
+				postToParent({
+					command: 'elementUnmapped',
+					elementId: elementId,
+					elementContext: elementContext(el),
+					inlineStyle: el.getAttribute ? (el.getAttribute('style') || undefined) : undefined,
+					computedStyle: safeComputedStyle(el),
+				});
+				return;
+			}
 			postToParent({
 				command: 'elementSelected',
 				file: ds.fileName,

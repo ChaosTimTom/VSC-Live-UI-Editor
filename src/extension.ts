@@ -4,11 +4,14 @@ import { isFromWebviewMessage, type ToWebviewMessage } from './bridge/messages';
 import { injectSourceMetadataRobust } from './injector/robustInjector';
 import { loadTargetFile } from './workspace/loadTargetFile';
 import { CodeModifier } from './codeModifier/CodeModifier';
+import * as net from 'net';
 import { registerUiWizard, type SelectedElement } from './chat/uiWizard';
 import { getAppModeWebviewHtml } from './appMode/webviewAppModeHtml';
 import { startInjectedProxyServer, type AppProxyServer } from './appMode/proxyServer';
 import { injectedClientScript } from './appMode/injectedClientScript';
-import { detectPackageManager, getFreePort, pickViteAppRoot, waitForHttpReady } from './appMode/viteUtils';
+import { tauriShimScript } from './appMode/tauriShim';
+import { pickAppCandidate, type AppFramework } from './appMode/appUtils';
+import { detectPackageManager, getFreePort, waitForHttpReady } from './appMode/viteUtils';
 import { startDetachedDevServerWindows } from './appMode/detachedDevServer';
 import * as path from 'path';
 import * as cp from 'child_process';
@@ -178,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
 	};
 
 	const stableIdsBabelPluginSource = `// Live UI Editor: injected Stable IDs for reliable element targeting (dev only)
-// This is a Babel plugin used via @vitejs/plugin-react.
+// This is a Babel plugin used via Vite (@vitejs/plugin-react) or Next.js (next/babel).
 
 function base64UrlEncode(str) {
 	return Buffer.from(String(str), 'utf8')
@@ -268,6 +271,64 @@ export default function liveUiEditorBabelPlugin(babel) {
 		}
 
 		return { ok: true, message: `Stable IDs enabled. Restart your dev server if it was running.` };
+	};
+
+	const enableStableIdsInNextApp = async (appRoot: vscode.Uri): Promise<{ ok: boolean; message: string }> => {
+		const pluginFile = vscode.Uri.joinPath(appRoot, 'live-ui-editor.babel-plugin.js');
+		if (!(await fileExists(pluginFile))) {
+			await writeUtf8(pluginFile, stableIdsBabelPluginSource);
+		}
+
+		// Prefer JSON .babelrc for reliable patching.
+		const babelRc = vscode.Uri.joinPath(appRoot, '.babelrc');
+		const babelConfigJs = vscode.Uri.joinPath(appRoot, 'babel.config.js');
+
+		if (await fileExists(babelRc)) {
+			try {
+				const cfg = JSON.parse(await readUtf8(babelRc)) as any;
+				const presets: any[] = Array.isArray(cfg.presets) ? cfg.presets : [];
+				if (!presets.some(p => (typeof p === 'string' ? p : p?.[0]) === 'next/babel')) {
+					presets.unshift('next/babel');
+				}
+				cfg.presets = presets;
+				const plugins: any[] = Array.isArray(cfg.plugins) ? cfg.plugins : [];
+				if (!plugins.some(p => (typeof p === 'string' ? p : p?.[0]) === './live-ui-editor.babel-plugin.js')) {
+					plugins.unshift('./live-ui-editor.babel-plugin.js');
+				}
+				cfg.plugins = plugins;
+				await writeUtf8(babelRc, JSON.stringify(cfg, null, 2));
+				return { ok: true, message: 'Stable IDs enabled for Next.js via .babelrc. Restart your dev server.' };
+			} catch (err) {
+				output.appendLine(`[stableIds] Failed to patch .babelrc: ${String(err)}`);
+			}
+		}
+
+		// If babel.config.js exists, do a best-effort patch (string-based).
+		if (await fileExists(babelConfigJs)) {
+			const original = await readUtf8(babelConfigJs);
+			if (/live-ui-editor\.babel-plugin\.js/.test(original)) {
+				return { ok: true, message: 'Stable IDs already enabled (babel.config.js already references the plugin).' };
+			}
+			let nextText = original;
+			if (/plugins\s*:\s*\[/.test(nextText)) {
+				nextText = nextText.replace(/plugins\s*:\s*\[/, `plugins: ['./live-ui-editor.babel-plugin.js', `);
+			} else if (/presets\s*:\s*\[/.test(nextText)) {
+				nextText = nextText.replace(/presets\s*:\s*\[[^\]]*\]/, (m) => `${m},\n  plugins: ['./live-ui-editor.babel-plugin.js']`);
+			} else {
+				// Fallback: append a full config export.
+				nextText = `module.exports = {\n  presets: ['next/babel'],\n  plugins: ['./live-ui-editor.babel-plugin.js'],\n};\n`;
+			}
+			await writeUtf8(babelConfigJs, nextText);
+			return { ok: true, message: 'Stable IDs enabled for Next.js via babel.config.js. Restart your dev server.' };
+		}
+
+		// Create a new .babelrc if none exist.
+		const cfg = {
+			presets: ['next/babel'],
+			plugins: ['./live-ui-editor.babel-plugin.js'],
+		};
+		await writeUtf8(babelRc, JSON.stringify(cfg, null, 2));
+		return { ok: true, message: 'Stable IDs enabled for Next.js via .babelrc. Restart your dev server.' };
 	};
 
 	context.subscriptions.push(
@@ -484,38 +545,77 @@ export default function liveUiEditorBabelPlugin(babel) {
 	});
 
 	const disposableAppMode = vscode.commands.registerCommand('liveUI.openAppMode', async () => {
-		const appRoot = await pickViteAppRoot();
-		if (!appRoot) return;
+		const app = await pickAppCandidate();
+		if (!app) return;
+		const appRoot = app.root;
+		const appFramework: AppFramework = app.framework;
+		let tauriShimEnabled = !!(app as any).isTauri;
 
 		const pkgManager = await detectPackageManager();
-		const port = await getFreePort();
 		const host = '127.0.0.1';
-		let origin = `http://${host}:${port}`;
 
-		const devCommand = process.platform === 'win32'
-			? `npm run dev -- --host ${host} --port ${port} --strictPort`
-			: pkgManager === 'pnpm'
-				? `pnpm dev -- --host ${host} --port ${port} --strictPort`
-				: pkgManager === 'yarn'
-					? `yarn dev --host ${host} --port ${port} --strictPort`
-					: `npm run dev -- --host ${host} --port ${port} --strictPort`;
+		const isPortFree = async (portToCheck: number): Promise<boolean> => {
+			return await new Promise((resolve) => {
+				const srv = net.createServer();
+				srv.unref();
+				srv.once('error', () => resolve(false));
+				srv.listen(portToCheck, host, () => {
+					srv.close(() => resolve(true));
+				});
+			});
+		};
 
-		// Let the user choose launch mode up-front (especially important on Windows).
-		let launchMode: 'external' | 'integrated' | 'existing' = 'integrated';
-		if (process.platform === 'win32') {
+		const candidateOrigins = (framework: AppFramework): string[] => {
+			const ports = framework === 'next'
+				? [3000, 3001, 3002, 3003, 3004, 3005]
+				: [5173, 5174, 5175, 5176, 4173, 3000];
+			return ports.map(p => `http://${host}:${p}`);
+		};
+
+		const autoDetectRunning = async (): Promise<string | undefined> => {
+			for (const url of candidateOrigins(appFramework)) {
+				const ok = await waitForHttpReady(url, 1200);
+				if (ok) return url;
+			}
+			return undefined;
+		};
+
+		// 1) Try to auto-connect first.
+		let origin = await autoDetectRunning();
+		let port: number;
+		let launchMode: 'external' | 'integrated' | 'existing' = 'existing';
+
+		// 2) If not running, choose a good default port and ask what to do.
+		if (!origin) {
+			if (appFramework === 'next') {
+				port = (await isPortFree(3000)) ? 3000 : await getFreePort();
+			} else {
+				port = await getFreePort();
+			}
+			origin = `http://${host}:${port}`;
+
 			const pick = await vscode.window.showQuickPick(
 				[
-					{ label: 'External window', description: 'Start dev server in a separate cmd window', value: 'external' as const },
-					{ label: 'Integrated terminal', description: 'Start dev server in VS Code terminal', value: 'integrated' as const },
-					{ label: 'Use existing URL', description: 'I already have the dev server running', value: 'existing' as const },
+					{ label: 'Start dev server (recommended)', description: 'Launch automatically and connect', value: 'integrated' as const },
+					{ label: 'Use existing URL', description: 'I already started the dev server', value: 'existing' as const },
+					{ label: 'External window', description: 'Start dev server in a separate window', value: 'external' as const },
 				],
-				{ title: 'Live UI Editor (App Mode): Start dev server how?' }
+				{ title: `Live UI Editor (App Mode): ${appFramework.toUpperCase()} app detected — connect how?` }
 			);
 			if (!pick) return;
 			launchMode = pick.value;
-		} else {
-			launchMode = 'integrated';
 		}
+
+		const devPort = Number(origin.split(':').pop());
+		const devArgs = appFramework === 'next'
+			? `--hostname ${host} --port ${devPort}`
+			: `--host ${host} --port ${devPort} --strictPort`;
+
+		const devCommand = pkgManager === 'pnpm'
+			? `pnpm dev -- ${devArgs}`
+			: pkgManager === 'yarn'
+				? `yarn dev -- ${devArgs}`
+				: `npm run dev -- ${devArgs}`;
 
 		if (launchMode === 'external') {
 			const launched = startDetachedDevServerWindows({
@@ -533,8 +633,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 			term.show(true);
 			term.sendText(devCommand, true);
 		} else {
+			// existing
 			const url = await vscode.window.showInputBox({
-				prompt: 'Enter existing dev server URL (e.g. http://127.0.0.1:5173)',
+				prompt: `Enter dev server URL (e.g. http://127.0.0.1:${appFramework === 'next' ? 3000 : 5173})`,
 				value: origin,
 				ignoreFocusOut: true,
 			});
@@ -542,19 +643,19 @@ export default function liveUiEditorBabelPlugin(babel) {
 			origin = url;
 		}
 
-		output.appendLine(`[appMode] Starting dev server at ${origin}`);
+		output.appendLine(`[appMode] target=${origin} framework=${appFramework}`);
 		output.appendLine(`[appMode] cwd=${appRoot.fsPath}`);
 		output.appendLine(`[appMode] cmd=${devCommand}`);
 		output.show(true);
 
-		let ready = await waitForHttpReady(origin, launchMode === 'integrated' ? 60000 : 45000);
+		let ready = await waitForHttpReady(origin, launchMode === 'integrated' ? 60000 : 20000);
 		if (!ready) {
 			const pick = await vscode.window.showErrorMessage(
-				`Live UI Editor: Timed out waiting for dev server at ${origin}.`,
+				`Live UI Editor: Could not reach dev server at ${origin}.`,
 				{ modal: false },
-				'Retry',
+				'Auto-detect running server',
+				'Use existing URL',
 				'Start in Integrated Terminal',
-				'Use Existing URL',
 				'Copy Command'
 			);
 
@@ -564,20 +665,29 @@ export default function liveUiEditorBabelPlugin(babel) {
 				return;
 			}
 
-			if (pick === 'Use Existing URL') {
+			if (pick === 'Auto-detect running server') {
+				const found = await autoDetectRunning();
+				if (!found) {
+					vscode.window.showErrorMessage('Live UI Editor: No running dev server found on common ports.');
+					return;
+				}
+				origin = found;
+				ready = true;
+			}
+
+			if (pick === 'Use existing URL') {
 				const url = await vscode.window.showInputBox({
-					prompt: 'Enter existing dev server URL (e.g. http://127.0.0.1:5173)',
+					prompt: `Enter dev server URL (e.g. http://127.0.0.1:${appFramework === 'next' ? 3000 : 5173})`,
 					value: origin,
 					ignoreFocusOut: true,
 				});
 				if (!url) return;
-				ready = await waitForHttpReady(url, 15000);
+				origin = url;
+				ready = await waitForHttpReady(origin, 15000);
 				if (!ready) {
-					vscode.window.showErrorMessage(`Live UI Editor: Could not reach ${url}.`);
+					vscode.window.showErrorMessage(`Live UI Editor: Could not reach ${origin}.`);
 					return;
 				}
-				// Override origin for proxy target
-				origin = url;
 			}
 
 			if (pick === 'Start in Integrated Terminal') {
@@ -587,15 +697,10 @@ export default function liveUiEditorBabelPlugin(babel) {
 				term.show(true);
 				term.sendText(devCommand, true);
 				ready = await waitForHttpReady(origin, 60000);
-			}
-
-			if (pick === 'Retry') {
-				ready = await waitForHttpReady(origin, 60000);
-			}
-
-			if (!ready) {
-				vscode.window.showErrorMessage(`Live UI Editor: Dev server still not reachable at ${origin}. Check Output → Live UI Editor for cmd/cwd.`);
-				return;
+				if (!ready) {
+					vscode.window.showErrorMessage(`Live UI Editor: Dev server still not reachable at ${origin}.`);
+					return;
+				}
 			}
 		}
 
@@ -606,7 +711,8 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 		currentAppProxy = await startInjectedProxyServer({
 			targetOrigin: origin,
-			injectedScript: injectedClientScript,
+			getEarlyScript: () => (tauriShimEnabled ? tauriShimScript : ''),
+			getInjectedScript: () => injectedClientScript,
 			logger: (line) => { output.appendLine(line); },
 		});
 
@@ -636,6 +742,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 		const pendingEdits = new Map<string, PendingEdit>();
 		let layoutApplyEnabled = false;
 		let warnedLayoutApplyBlocked = false;
+		let warnedUnmappedSelection = false;
 		function pendingKey(e: PendingEdit): string {
 			if (typeof e.elementId === 'string' && e.elementId) {
 				return [e.kind, e.file, e.elementId].join('|');
@@ -804,6 +911,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 			created.webview.html = getAppModeWebviewHtml(created.webview, {
 				iframeUrl: currentAppProxy!.proxyOrigin,
 				appLabel: vscode.workspace.asRelativePath(appRoot!, false),
+				tauriShimEnabled,
 			});
 			publishPendingCount();
 
@@ -856,7 +964,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 				if (message.command === 'enableStableIds') {
 					try {
 						const confirm = await vscode.window.showWarningMessage(
-							'Live UI Editor can enable Stable IDs by modifying your Vite config and adding a small dev-only plugin file. This makes targeting reliable. Proceed?',
+							appFramework === 'next'
+								? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
+								: 'Live UI Editor can enable Stable IDs by modifying your Vite config and adding a small dev-only plugin file. This makes targeting reliable. Proceed?',
 							{ modal: true },
 							'Enable',
 							'Cancel'
@@ -866,7 +976,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 							return;
 						}
 
-						const res = await enableStableIdsInViteApp(appRoot!);
+						const res = appFramework === 'next'
+							? await enableStableIdsInNextApp(appRoot!)
+							: await enableStableIdsInViteApp(appRoot!);
 						if (res.ok) vscode.window.showInformationMessage(res.message);
 						else vscode.window.showErrorMessage(`Live UI Editor: ${res.message}`);
 						try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: res.ok, message: res.message }); } catch {}
@@ -880,6 +992,12 @@ export default function liveUiEditorBabelPlugin(babel) {
 				if (message.command === 'setLayoutApply') {
 					layoutApplyEnabled = message.enabled;
 					output.appendLine(`[appMode] layoutApplyEnabled=${layoutApplyEnabled}`);
+					return;
+				}
+				if (message.command === 'setTauriShim') {
+					tauriShimEnabled = message.enabled;
+					output.appendLine(`[appMode] tauriShimEnabled=${tauriShimEnabled}`);
+					try { created.webview.postMessage({ command: 'appModeReload' }); } catch {}
 					return;
 				}
 				if (message.command === 'applyPendingEdits') {
@@ -928,6 +1046,49 @@ export default function liveUiEditorBabelPlugin(babel) {
 						inlineStyle: message.inlineStyle,
 						computedStyle: message.computedStyle,
 					};
+					return;
+				}
+				if (message.command === 'elementUnmapped') {
+					// We can select a DOM node, but cannot map it to source (no debugSource + no Stable IDs).
+					// UI Wizard depends on file/line, so guide the user toward Stable IDs.
+					if (!warnedUnmappedSelection) {
+						warnedUnmappedSelection = true;
+						const choice = await vscode.window.showWarningMessage(
+							'Live UI Editor (App Mode): Selected element could not be mapped to source code, so UI Wizard can’t apply edits. Enable Stable IDs now?',
+							'Enable Stable IDs',
+							'Not now'
+						);
+
+						if (choice === 'Enable Stable IDs') {
+							try {
+								const confirm = await vscode.window.showWarningMessage(
+									appFramework === 'next'
+										? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
+										: 'Live UI Editor can enable Stable IDs by modifying your Vite config and adding a small dev-only plugin file. This makes targeting reliable. Proceed?',
+									{ modal: true },
+									'Enable',
+									'Cancel'
+								);
+								if (confirm !== 'Enable') return;
+
+								const res = appFramework === 'next'
+									? await enableStableIdsInNextApp(appRoot!)
+									: await enableStableIdsInViteApp(appRoot!);
+								if (res.ok) {
+									vscode.window.showInformationMessage(res.message);
+									try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: res.ok, message: res.message }); } catch {}
+									try { created.webview.postMessage({ command: 'appModeReload' }); } catch {}
+								} else {
+									vscode.window.showErrorMessage(`Live UI Editor: ${res.message}`);
+									try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false, message: res.message }); } catch {}
+								}
+							} catch (err) {
+								output.appendLine(`[stableIds:error] ${String(err)}`);
+								vscode.window.showErrorMessage('Live UI Editor: Failed to enable Stable IDs. Check Output → Live UI Editor.');
+								try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false }); } catch {}
+							}
+						}
+					}
 					return;
 				}
 				if (message.command === 'elementClicked') {

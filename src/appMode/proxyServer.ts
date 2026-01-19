@@ -2,19 +2,39 @@ import * as http from 'http';
 import * as net from 'net';
 import type { AddressInfo } from 'net';
 import httpProxy from 'http-proxy';
+import * as zlib from 'zlib';
 
 export type AppProxyServer = {
 	proxyOrigin: string;
 	close: () => Promise<void>;
 };
 
-function injectScriptIntoHtml(html: string, scriptContents: string): string {
-	const tag = `<script>${scriptContents}</script>`;
-	const headClose = html.toLowerCase().lastIndexOf('</head>');
-	if (headClose !== -1) return html.slice(0, headClose) + tag + html.slice(headClose);
-	const bodyClose = html.toLowerCase().lastIndexOf('</body>');
-	if (bodyClose !== -1) return html.slice(0, bodyClose) + tag + html.slice(bodyClose);
-	return html + tag;
+function injectScriptsIntoHtml(html: string, scripts: { early?: string; late?: string }): string {
+	let out = html;
+	const early = scripts.early ? String(scripts.early) : '';
+	const late = scripts.late ? String(scripts.late) : '';
+
+	if (early) {
+		const tag = `<script>${early}</script>`;
+		const headOpen = out.match(/<head\b[^>]*>/i);
+		if (headOpen && typeof headOpen.index === 'number') {
+			const idx = headOpen.index + headOpen[0].length;
+			out = out.slice(0, idx) + tag + out.slice(idx);
+		} else {
+			out = tag + out;
+		}
+	}
+
+	if (late) {
+		const tag = `<script>${late}</script>`;
+		const headClose = out.toLowerCase().lastIndexOf('</head>');
+		if (headClose !== -1) return out.slice(0, headClose) + tag + out.slice(headClose);
+		const bodyClose = out.toLowerCase().lastIndexOf('</body>');
+		if (bodyClose !== -1) return out.slice(0, bodyClose) + tag + out.slice(bodyClose);
+		return out + tag;
+	}
+
+	return out;
 }
 
 async function getFreePort(): Promise<number> {
@@ -36,12 +56,28 @@ function headerValue(h: unknown): string | undefined {
 	return undefined;
 }
 
+function decodeBody(body: Buffer, contentEncoding: string): Buffer {
+	const enc = (contentEncoding || '').toLowerCase().trim();
+	if (!enc || enc === 'identity') return body;
+
+	try {
+		if (enc.includes('gzip')) return zlib.gunzipSync(body);
+		if (enc.includes('br')) return zlib.brotliDecompressSync(body);
+		if (enc.includes('deflate')) return zlib.inflateSync(body);
+	} catch {
+		// If decoding fails, return original. Better to show something than hard-fail.
+	}
+
+	return body;
+}
+
 export async function startInjectedProxyServer(opts: {
 	targetOrigin: string;
-	injectedScript: string;
+	getEarlyScript?: () => string | undefined;
+	getInjectedScript: () => string;
 	logger?: (line: string) => void;
 }): Promise<AppProxyServer> {
-	const { targetOrigin, injectedScript, logger } = opts;
+	const { targetOrigin, getInjectedScript, getEarlyScript, logger } = opts;
 
 	const proxy = httpProxy.createProxyServer({
 		target: targetOrigin,
@@ -54,9 +90,20 @@ export async function startInjectedProxyServer(opts: {
 		logger?.(`[proxy:error] ${String(err)}`);
 	});
 
+	proxy.on('proxyReq', (proxyReq) => {
+		// Avoid compressed HTML where possible (Next.js often serves gzip/br).
+		// If the upstream still returns compressed content, we decode it in proxyRes.
+		try {
+			proxyReq.setHeader('accept-encoding', 'identity');
+		} catch {
+			// ignore
+		}
+	});
+
 	proxy.on('proxyRes', (proxyRes, req, res) => {
 		const ct = headerValue(proxyRes.headers['content-type']) ?? '';
 		const isHtml = ct.toLowerCase().includes('text/html');
+		const contentEncoding = headerValue(proxyRes.headers['content-encoding']) ?? '';
 
 		// Remove frame-busting headers so the app can render in an <iframe>.
 		const headers: Record<string, string | string[]> = {};
@@ -78,12 +125,20 @@ export async function startInjectedProxyServer(opts: {
 		const chunks: Buffer[] = [];
 		proxyRes.on('data', d => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
 		proxyRes.on('end', () => {
-			const raw = Buffer.concat(chunks).toString('utf8');
-			const injected = injectScriptIntoHtml(raw, injectedScript);
+			const rawBytes = Buffer.concat(chunks);
+			const decoded = decodeBody(rawBytes, contentEncoding);
+			const raw = decoded.toString('utf8');
+			const injected = injectScriptsIntoHtml(raw, {
+				early: getEarlyScript ? (getEarlyScript() || '') : '',
+				late: getInjectedScript(),
+			});
 			const body = Buffer.from(injected, 'utf8');
 
 			// Ensure content-length is correct after injection.
 			delete (headers as any)['content-length'];
+			// We injected into the decoded HTML; don't lie about encoding.
+			delete (headers as any)['content-encoding'];
+			delete (headers as any)['transfer-encoding'];
 			res.writeHead(proxyRes.statusCode ?? 200, {
 				...headers,
 				'content-length': String(body.byteLength),

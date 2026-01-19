@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
 import type { CodeModifier } from '../codeModifier/CodeModifier';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
 
 export type SelectedElement = {
 	fileId: string;
 	line: number;
 	column?: number;
-	elementId?: string;
 	uri: vscode.Uri;
 	elementContext?: {
 		tagName: string;
@@ -439,66 +435,6 @@ async function imageUriToDataUrl(uri: vscode.Uri): Promise<string> {
 	return `data:${mime};base64,${base64}`;
 }
 
-function findNearestPackageRoot(startFsPath: string): string | undefined {
-	let dir = fs.existsSync(startFsPath) && fs.statSync(startFsPath).isDirectory()
-		? startFsPath
-		: path.dirname(startFsPath);
-
-	for (let i = 0; i < 20; i++) {
-		const pkg = path.join(dir, 'package.json');
-		if (fs.existsSync(pkg)) return dir;
-		const parent = path.dirname(dir);
-		if (!parent || parent === dir) break;
-		dir = parent;
-	}
-	return;
-}
-
-function sanitizeFileBaseName(name: string): string {
-	return name
-		.replace(/\.[^./\\]+$/g, '')
-		.replace(/[^a-zA-Z0-9_-]+/g, '-')
-		.replace(/-+/g, '-')
-		.replace(/^[-_]+|[-_]+$/g, '')
-		.slice(0, 40) || 'image';
-}
-
-async function copyImageIntoPublicAssets(
-	imageUri: vscode.Uri,
-	anchorSourceUri: vscode.Uri
-): Promise<{ publicUrl: string; destUri: vscode.Uri; appRoot: string } | undefined> {
-	const appRoot = findNearestPackageRoot(anchorSourceUri.fsPath);
-	if (!appRoot) return;
-
-	const destDir = path.join(appRoot, 'public', 'live-ui-assets');
-	try {
-		fs.mkdirSync(destDir, { recursive: true });
-	} catch {
-		// If we can't create the folder, fall back.
-		return;
-	}
-
-	const ext = path.extname(imageUri.fsPath || '').toLowerCase() || '.png';
-	const base = sanitizeFileBaseName(path.basename(imageUri.fsPath || 'image'));
-
-	for (let attempt = 0; attempt < 10; attempt++) {
-		const suffix = crypto.randomBytes(3).toString('hex');
-		const fileName = `${base}-${suffix}${ext}`;
-		const destPath = path.join(destDir, fileName);
-		if (fs.existsSync(destPath)) continue;
-		const destUri = vscode.Uri.file(destPath);
-		try {
-			// workspace.fs.copy works across local/remote if supported.
-			await vscode.workspace.fs.copy(imageUri, destUri, { overwrite: false });
-			return { publicUrl: `/live-ui-assets/${fileName}`, destUri, appRoot };
-		} catch {
-			// Try a new name.
-		}
-	}
-
-	return;
-}
-
 const ALLOWED_STYLE_KEYS = new Set([
 	'width',
 	'height',
@@ -841,7 +777,7 @@ async function applyUiEdit(codeModifier: CodeModifier, selected: SelectedElement
 	const wantsMoveBy = cmd.moveDx !== undefined || cmd.moveDy !== undefined;
 
 	if (wantsMoveTo || wantsMoveBy) {
-		const [currentX, currentY] = await codeModifier.getTranslate(selected.uri, selected.line, selected.column, selected.elementContext);
+		const [currentX, currentY] = await codeModifier.getTranslate(selected.uri, selected.line);
 		const nextX = wantsMoveTo ? (cmd.moveToX ?? currentX) : (currentX + (cmd.moveDx ?? 0));
 		const nextY = wantsMoveTo ? (cmd.moveToY ?? currentY) : (currentY + (cmd.moveDy ?? 0));
 		styles.transform = `translate(${Math.round(nextX)}px, ${Math.round(nextY)}px)`;
@@ -854,13 +790,7 @@ async function applyUiEdit(codeModifier: CodeModifier, selected: SelectedElement
 		};
 	}
 
-	let changed = false;
-	if (selected.elementId && typeof (codeModifier as any).updateStyleByElementId === 'function') {
-		changed = await (codeModifier as any).updateStyleByElementId(selected.uri, selected.elementId, styles);
-	}
-	if (!changed) {
-		changed = await codeModifier.updateStyle(selected.uri, selected.line, styles, selected.column, selected.elementContext);
-	}
+	const changed = await codeModifier.updateStyle(selected.uri, selected.line, styles);
 	return {
 		changed,
 		message: changed
@@ -1139,7 +1069,7 @@ export function registerUiWizard(
 
 		const selected = deps.getSelected();
 		if (!selected) {
-			stream.markdown('Select an element in the Live UI view first (click it), then ask me to change it.');
+			stream.markdown('Select an element in the Live UI view first, then ask me to change it. (App Mode: switch to **Edit** in the top bar, then click an element.)');
 			stream.markdown("\n\nSay `commands` to see everything I can do.");
 			stream.markdown("\n\nExamples: `width 240`, `height 48`, `move right 20`, `move up 10`, `x 40 y 12`.");
 			return;
@@ -1230,7 +1160,7 @@ export function registerUiWizard(
 				const pick = await vscode.window.showOpenDialog({
 					canSelectFiles: true,
 					canSelectMany: false,
-					openLabel: 'Use as UI background image',
+					openLabel: 'Use as UI element image',
 					filters: {
 						Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
 					}
@@ -1239,35 +1169,15 @@ export function registerUiWizard(
 					stream.markdown('No image selected.');
 					return;
 				}
-
-				// Prefer copying into the app's /public so the code change stays small and build-friendly.
-				const copied = await copyImageIntoPublicAssets(pick[0], selected.uri);
-				const imageRef = copied
-					? copied.publicUrl
-					: await imageUriToDataUrl(pick[0]);
-
+				const dataUrl = await imageUriToDataUrl(pick[0]);
 				const styles = {
-					backgroundImage: `url('${imageRef}')`,
+					backgroundImage: `url('${dataUrl}')`,
 					backgroundSize: 'cover',
 					backgroundPosition: 'center',
 					backgroundRepeat: 'no-repeat',
 				} satisfies Record<string, string>;
-				let changed = false;
-				if (selected.elementId && typeof (deps.codeModifier as any).updateStyleByElementId === 'function') {
-					changed = await (deps.codeModifier as any).updateStyleByElementId(selected.uri, selected.elementId, styles);
-				}
-				if (!changed) {
-					changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, styles, selected.column, selected.elementContext);
-				}
-				if (changed) {
-					stream.markdown(
-						copied
-							? `Applied background image (copied to ${copied.publicUrl}).`
-							: 'Applied background image (embedded as data URL).'
-					);
-				} else {
-					stream.markdown('No change needed.');
-				}
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, styles);
+				stream.markdown(changed ? 'Applied background image (embedded as data URL).' : 'No change needed.');
 				if (changed) await deps.refreshWebviewIfOpen(selected.uri);
 				return;
 			}
@@ -1355,13 +1265,7 @@ export function registerUiWizard(
 				}
 
 				await pushUndoSnapshot('apply style to selected element', [selected.uri]);
-				let changed = false;
-				if (selected.elementId && typeof (deps.codeModifier as any).updateStyleByElementId === 'function') {
-					changed = await (deps.codeModifier as any).updateStyleByElementId(selected.uri, selected.elementId, patch);
-				}
-				if (!changed) {
-					changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, patch);
-				}
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, patch);
 				await deps.clearPreviewIfOpen();
 				stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
 				if (changed) await deps.refreshWebviewIfOpen(selected.uri);

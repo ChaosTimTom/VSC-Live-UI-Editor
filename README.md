@@ -113,6 +113,62 @@ That's it! Your changes are staged and ready to apply.
 
 ---
 
+## 🧠 First-Time Setup (Idiot-Proof)
+
+App Mode needs a running dev server it can iframe.
+
+### 1) Start / connect to your dev server
+
+Run **"Live UI: Open (App Mode)"** and the extension will:
+
+- Try to **auto-detect** a running dev server on common ports.
+- If none is found, it offers:
+  - **Start dev server (recommended)** (in the integrated terminal)
+  - **Use existing URL** (paste your dev server URL)
+  - **External window** (starts dev server detached on Windows)
+
+Notes:
+- App Mode forces your dev server to bind to `127.0.0.1` (for consistent iframe/CSP behavior).
+- Vite is started with `--host 127.0.0.1 --port <port> --strictPort`.
+- Next.js is started with `--hostname 127.0.0.1 --port <port>`.
+
+### 2) Use Edit vs Browse mode
+
+- **Edit mode**: hover highlight, click selects, drag/resize, double-click text.
+- **Browse mode**: normal app interaction.
+
+If UI Wizard says there is no selection, make sure you’re in **Edit** and click an element.
+
+### 3) Fix “Identity: Unmapped” (highly recommended)
+
+If the toolbar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
+
+Click **Enable Stable IDs**.
+
+What it changes in your app:
+
+- Writes `live-ui-editor.babel-plugin.js` into your app root (dev-only Babel plugin).
+- Vite:
+  - Patches `vite.config.*` to ensure `@vitejs/plugin-react` is used.
+  - Adds the Babel plugin to the React plugin config.
+  - Installs `@vitejs/plugin-react` if it’s missing.
+- Next.js:
+  - Adds/patches `.babelrc` (or `babel.config.js`) to include `next/babel` + the plugin.
+  - Important: this can make Next dev use Babel instead of SWC.
+
+Then restart your dev server.
+
+### 4) (Optional) Tauri apps in App Mode
+
+If your app is Tauri-targeted (has `src-tauri/tauri.conf.json`), App Mode can auto-enable **Tauri Shim**.
+
+- The shim is a browser stub so the app can load and you can navigate UI.
+- Native features won’t fully work (it’s intentionally a compatibility layer, not a full Tauri runtime).
+
+You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
+
+---
+
 ## 🎮 Controls
 
 | Action | Shortcut |
@@ -235,6 +291,20 @@ Enable **Stable IDs** for reliable targeting. Without them, elements are matched
 </details>
 
 <details>
+<summary><strong>Identity says “Unmapped”</strong></summary>
+
+Click **Enable Stable IDs** and restart your dev server. Without Stable IDs (or React debug source), App Mode can’t reliably map DOM → source.
+
+</details>
+
+<details>
+<summary><strong>Tauri app says “not running in Tauri environment”</strong></summary>
+
+Enable **Tauri Shim** in the App Mode toolbar. This stubs the minimal Tauri surface needed for many Tauri-targeted web UIs to load in a browser.
+
+</details>
+
+<details>
 <summary><strong>Dev server won't start</strong></summary>
 
 1. Ensure your `package.json` has a `dev` script
@@ -272,6 +342,11 @@ npm run build          # Build extension + webview
 npm run watch:extension # Watch mode for extension
 npm run build:webview   # Build webview UI only
 ```
+
+### Maintainers
+
+- Release checklist: see [RELEASING.md](RELEASING.md)
+- Version history: see [CHANGELOG.md](CHANGELOG.md)
 
 ---
 

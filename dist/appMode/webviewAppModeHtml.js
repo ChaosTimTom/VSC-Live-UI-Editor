@@ -44,7 +44,10 @@ function getAppModeWebviewHtml(webview, opts) {
 		#identityBadge[data-kind="unknown"] { opacity: 0.55; }
 		#identityBadge[data-kind="stable"] { border-color: rgba(80, 180, 120, 0.75); }
 		#identityBadge[data-kind="fallback"] { border-color: rgba(255, 180, 60, 0.75); }
+		#identityBadge[data-kind="unmapped"] { border-color: rgba(255, 120, 120, 0.85); }
 		#enableStableIds { border-color: rgba(80, 180, 120, 0.75); }
+		#tauriShimWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
+		#tauriShimWrap input { transform: translateY(1px); }
 		#layoutWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
 		#layoutWrap input { transform: translateY(1px); }
 		#help { font-size: 12px; opacity: 0.8; }
@@ -65,7 +68,11 @@ function getAppModeWebviewHtml(webview, opts) {
 		<button id="apply" disabled>Apply to Code</button>
 		<button id="discard" disabled>Discard</button>
 		<span id="identityBadge" data-kind="unknown" title="Stable IDs make edits apply to the correct element.">Identity: …</span>
-		<button id="enableStableIds" title="Automatically enables Stable IDs in your Vite app so the editor can always target the correct element.">Enable Stable IDs</button>
+		<button id="enableStableIds" title="Automatically enables Stable IDs for Vite or Next.js so the editor can always target the correct element.">Enable Stable IDs</button>
+			<label id="tauriShimWrap" title="Runs a small in-browser Tauri shim so Tauri-targeted apps can load inside App Mode. This is a stub for navigation only; native features won’t fully work.">
+				<input id="tauriShim" type="checkbox" />
+				Tauri Shim
+			</label>
 		<label id="layoutWrap" title="When enabled, drag/resize will be written to code as width/height/transform. Leave off for safer styling-only edits.">
 			<input id="layoutApply" type="checkbox" />
 			Layout Apply
@@ -75,7 +82,7 @@ function getAppModeWebviewHtml(webview, opts) {
 	</div>
 	<div id="applyReport" data-kind="ok"></div>
 	<div id="frameWrap">
-		<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}"></iframe>
+		<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}" allow="clipboard-read; clipboard-write"></iframe>
 	</div>
 
 	<script nonce="${nonce}">
@@ -95,14 +102,16 @@ function getAppModeWebviewHtml(webview, opts) {
 		const discardBtn = document.getElementById('discard');
 		const identityBadge = document.getElementById('identityBadge');
 		const enableStableIdsBtn = document.getElementById('enableStableIds');
+		const tauriShim = document.getElementById('tauriShim');
 		const layoutApply = document.getElementById('layoutApply');
 		const applyReport = document.getElementById('applyReport');
 
-		let mode = 'browse'; // 'browse' | 'edit'
+		let mode = 'edit'; // 'browse' | 'edit'
 		let pendingCount = 0;
 		let layoutApplyEnabled = false;
-		let identityKind = 'unknown'; // 'unknown' | 'stable' | 'fallback'
+		let identityKind = 'unknown'; // 'unknown' | 'stable' | 'fallback' | 'unmapped'
 		let enablingStableIds = false;
+		let tauriShimEnabled = ${opts.tauriShimEnabled ? 'true' : 'false'};
 
 		if (typeof acquireVsCodeApi !== 'function') {
 			helpEl.textContent = 'App Mode UI failed to initialize (webview API blocked). Reload the window; if it persists, the webview CSP may be too strict.';
@@ -110,10 +119,13 @@ function getAppModeWebviewHtml(webview, opts) {
 
 		try {
 			const state = vscode.getState() || {};
+			if (state && (state.mode === 'browse' || state.mode === 'edit')) mode = state.mode;
+			if (typeof state.tauriShimEnabled === 'boolean') tauriShimEnabled = state.tauriShimEnabled;
 			if (typeof state.layoutApplyEnabled === 'boolean') layoutApplyEnabled = state.layoutApplyEnabled;
 		} catch {}
+		tauriShim.checked = tauriShimEnabled;
 		layoutApply.checked = layoutApplyEnabled;
-		vscode.setState({ ...(vscode.getState() || {}), layoutApplyEnabled });
+		vscode.setState({ ...(vscode.getState() || {}), mode, tauriShimEnabled, layoutApplyEnabled });
 
 		function render() {
 			modeEl.textContent = mode === 'edit' ? 'Mode: Edit' : 'Mode: Browse';
@@ -123,15 +135,18 @@ function getAppModeWebviewHtml(webview, opts) {
 			applyBtn.disabled = pendingCount <= 0;
 			discardBtn.disabled = pendingCount <= 0;
 			layoutApply.checked = !!layoutApplyEnabled;
+			tauriShim.checked = !!tauriShimEnabled;
 			identityBadge.dataset.kind = identityKind;
 			identityBadge.textContent = identityKind === 'stable'
 				? 'Identity: Stable'
 				: identityKind === 'fallback'
 					? 'Identity: Fallback'
+					: identityKind === 'unmapped'
+						? 'Identity: Unmapped'
 					: 'Identity: …';
 			enableStableIdsBtn.disabled = enablingStableIds;
 			helpEl.textContent = mode === 'edit'
-				? 'Edit: hover highlights, click selects, Ctrl/Cmd+Click jumps to code. Shift+Click toggles multi-select. Shift+Drag draws a selection box. Alt+Click selects exact leaf.'
+				? 'Edit: hover highlights, click selects, Ctrl/Cmd+Click jumps to code. Shift+Click toggles multi-select. Shift+Drag draws a selection box. Alt+Click selects exact leaf. Tip: select an element, then use UI Wizard.'
 				: 'Browse: normal app interaction, Alt+Click jumps to code';
 		}
 
@@ -143,9 +158,18 @@ function getAppModeWebviewHtml(webview, opts) {
 
 		toggleBtn.addEventListener('click', () => {
 			mode = mode === 'edit' ? 'browse' : 'edit';
+			try { vscode.setState({ ...(vscode.getState() || {}), mode }); } catch {}
 			render();
 			sendMode();
 		});
+
+		iframe.addEventListener('load', () => {
+			// Ensure the injected client picks up our current mode after navigation/reload.
+			sendMode();
+		});
+
+		render();
+		sendMode();
 
 		applyBtn.addEventListener('click', () => {
 			vscode.postMessage({ command: 'applyPendingEdits' });
@@ -169,6 +193,13 @@ function getAppModeWebviewHtml(webview, opts) {
 			render();
 		});
 
+		tauriShim.addEventListener('change', () => {
+			tauriShimEnabled = !!tauriShim.checked;
+			try { vscode.setState({ ...(vscode.getState() || {}), tauriShimEnabled }); } catch {}
+			vscode.postMessage({ command: 'setTauriShim', enabled: tauriShimEnabled });
+			render();
+		});
+
 		window.addEventListener('message', (ev) => {
 			const data = ev.data;
 			if (!data || typeof data !== 'object') return;
@@ -176,6 +207,10 @@ function getAppModeWebviewHtml(webview, opts) {
 				try {
 					if (data.message && data.message.command === 'elementSelected') {
 						identityKind = data.message.elementId ? 'stable' : 'fallback';
+						render();
+					}
+					if (data.message && data.message.command === 'elementUnmapped') {
+						identityKind = 'unmapped';
 						render();
 					}
 				} catch {}

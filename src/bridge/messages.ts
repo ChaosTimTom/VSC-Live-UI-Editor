@@ -48,6 +48,24 @@ export type ElementSelectedMessage = {
 	computedStyle?: Record<string, string>;
 };
 
+export type ElementUnmappedMessage = {
+	command: 'elementUnmapped';
+	// When we can select a DOM element but cannot map it back to source code.
+	// (Common in frameworks/build pipelines that don't provide React _debugSource.)
+	elementId?: string;
+	elementContext?: {
+		tagName: string;
+		id?: string;
+		classList?: string[];
+		role?: string;
+		href?: string;
+		type?: string;
+		text?: string;
+	};
+	inlineStyle?: string;
+	computedStyle?: Record<string, string>;
+};
+
 export type TargetsListMessage = {
 	command: 'targetsList';
 	requestId: string;
@@ -107,6 +125,11 @@ export type SetLayoutApplyMessage = {
 	enabled: boolean;
 };
 
+export type SetTauriShimMessage = {
+	command: 'setTauriShim';
+	enabled: boolean;
+};
+
 export type EnableStableIdsMessage = {
 	command: 'enableStableIds';
 };
@@ -115,12 +138,14 @@ export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearP
 export type FromWebviewMessage =
 	| ElementClickedMessage
 	| ElementSelectedMessage
+	| ElementUnmappedMessage
 	| TargetsListMessage
 	| UpdateStyleMessage
 	| UpdateTextMessage
 	| ApplyPendingEditsMessage
 	| DiscardPendingEditsMessage
 	| SetLayoutApplyMessage
+	| SetTauriShimMessage
 	| EnableStableIdsMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
@@ -135,6 +160,31 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
 		const colOk = v.column === undefined || typeof v.column === 'number';
 		if (!colOk) return false;
+		const elementIdOk = v.elementId === undefined || typeof v.elementId === 'string';
+		if (!elementIdOk) return false;
+		const inlineOk = v.inlineStyle === undefined || typeof v.inlineStyle === 'string';
+		if (!inlineOk) return false;
+		if (v.computedStyle !== undefined) {
+			if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
+			const cs = v.computedStyle as Record<string, unknown>;
+			for (const [k, val] of Object.entries(cs)) {
+				if (typeof k !== 'string') return false;
+				if (typeof val !== 'string') return false;
+			}
+		}
+		if (v.elementContext === undefined) return true;
+		if (!v.elementContext || typeof v.elementContext !== 'object') return false;
+		const c = v.elementContext as Record<string, unknown>;
+		if (typeof c.tagName !== 'string') return false;
+		const ctxIdOk = c.id === undefined || typeof c.id === 'string';
+		const roleOk = c.role === undefined || typeof c.role === 'string';
+		const hrefOk = c.href === undefined || typeof c.href === 'string';
+		const typeOk = c.type === undefined || typeof c.type === 'string';
+		const textOk = c.text === undefined || typeof c.text === 'string';
+		const classOk = c.classList === undefined || (Array.isArray(c.classList) && c.classList.every(x => typeof x === 'string'));
+		return ctxIdOk && roleOk && hrefOk && typeOk && textOk && classOk;
+	}
+	if (v.command === 'elementUnmapped') {
 		const elementIdOk = v.elementId === undefined || typeof v.elementId === 'string';
 		if (!elementIdOk) return false;
 		const inlineOk = v.inlineStyle === undefined || typeof v.inlineStyle === 'string';
@@ -208,6 +258,9 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 			if (!(idOk && roleOk && hrefOk && typeOk && textOk && classOk)) return false;
 		}
 		return true;
+	}
+	if (v.command === 'setTauriShim') {
+		return typeof v.enabled === 'boolean';
 	}
 	if (v.command === 'applyPendingEdits') {
 		return true;
