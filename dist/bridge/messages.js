@@ -150,6 +150,19 @@ function isFromWebviewMessage(value) {
         return typeof v.enabled === 'boolean';
     }
     if (v.command === 'applyPendingEdits') {
+        const forceOk = v.forceUnsafe === undefined || typeof v.forceUnsafe === 'boolean';
+        return forceOk;
+    }
+    if (v.command === 'fixTargeting') {
+        return true;
+    }
+    if (v.command === 'setStyleApplyMode') {
+        return v.mode === 'class' || v.mode === 'inline';
+    }
+    if (v.command === 'setStyleAdapter') {
+        return v.adapter === 'auto' || v.adapter === 'tailwind' || v.adapter === 'cssClass' || v.adapter === 'inline';
+    }
+    if (v.command === 'pickCssTarget') {
         return true;
     }
     if (v.command === 'discardPendingEdits') {

@@ -114,6 +114,7 @@ export type UpdateTextMessage = {
 
 export type ApplyPendingEditsMessage = {
 	command: 'applyPendingEdits';
+	forceUnsafe?: boolean;
 };
 
 export type DiscardPendingEditsMessage = {
@@ -134,6 +135,24 @@ export type EnableStableIdsMessage = {
 	command: 'enableStableIds';
 };
 
+export type FixTargetingMessage = {
+	command: 'fixTargeting';
+};
+
+export type SetStyleApplyModeMessage = {
+	command: 'setStyleApplyMode';
+	mode: 'class' | 'inline';
+};
+
+export type SetStyleAdapterMessage = {
+	command: 'setStyleAdapter';
+	adapter: 'auto' | 'tailwind' | 'cssClass' | 'inline';
+};
+
+export type PickCssTargetMessage = {
+	command: 'pickCssTarget';
+};
+
 export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
@@ -146,7 +165,11 @@ export type FromWebviewMessage =
 	| DiscardPendingEditsMessage
 	| SetLayoutApplyMessage
 	| SetTauriShimMessage
-	| EnableStableIdsMessage;
+	| EnableStableIdsMessage
+	| FixTargetingMessage
+	| SetStyleApplyModeMessage
+	| SetStyleAdapterMessage
+	| PickCssTargetMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
@@ -263,6 +286,19 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		return typeof v.enabled === 'boolean';
 	}
 	if (v.command === 'applyPendingEdits') {
+		const forceOk = v.forceUnsafe === undefined || typeof v.forceUnsafe === 'boolean';
+		return forceOk;
+	}
+	if (v.command === 'fixTargeting') {
+		return true;
+	}
+	if (v.command === 'setStyleApplyMode') {
+		return v.mode === 'class' || v.mode === 'inline';
+	}
+	if (v.command === 'setStyleAdapter') {
+		return v.adapter === 'auto' || v.adapter === 'tailwind' || v.adapter === 'cssClass' || v.adapter === 'inline';
+	}
+	if (v.command === 'pickCssTarget') {
 		return true;
 	}
 	if (v.command === 'discardPendingEdits') {

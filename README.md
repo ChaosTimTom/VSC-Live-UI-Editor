@@ -5,7 +5,7 @@
 <h1 align="center">Live UI Editor</h1>
 
 <p align="center">
-  <strong>Visual React/Vite editing inside VS Code — drag, resize, rotate, and edit text with live source code updates.</strong>
+  <strong>Visual React/Vite/Next.js editing inside VS Code — click-to-code, live preview, and safe source updates.</strong>
 </p>
 
 <p align="center">
@@ -80,6 +80,23 @@ See changes instantly in the embedded browser. Toggle between Edit and Browse mo
 
 ### 📦 Safe Staging
 All changes are previewed before saving. Apply or discard pending edits with one click.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🎛️ Universal Style Targets
+Apply style edits in a way that matches your project:
+
+- **Auto** (recommended): prefers **Tailwind** when detected, otherwise writes a **CSS class rule**.
+- **Inline**: escape hatch when you need it (with warnings for layout-risky changes).
+
+</td>
+<td width="50%">
+
+### 📱 Mobile/Responsive Workflow
+Preview common device sizes and enable safe-area + warning overlays to catch responsive issues early.
 
 </td>
 </tr>
@@ -160,7 +177,16 @@ What it changes in your app:
 
 Then restart your dev server.
 
-### 4) (Optional) Tauri apps in App Mode
+### 4) Pick how styles are written (Auto/Tailwind/CSS/Inline)
+
+Use the **Style Target** dropdown in the App Mode toolbar:
+
+- **Auto**: chooses the best available adapter and shows the reason.
+- **Tailwind**: writes Tailwind utility tokens into `className` (when className is a simple string).
+- **CSS file**: adds a stable class and upserts a `.lui-xxxx { ... }` rule into a chosen CSS file.
+- **Inline**: writes `style={...}` in JSX/HTML (can override responsive CSS; the extension will warn you).
+
+### 5) (Optional) Tauri apps in App Mode
 
 If your app is Tauri-targeted (has `src-tauri/tauri.conf.json`), App Mode can auto-enable **Tauri Shim**.
 
@@ -209,7 +235,7 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-1. **Proxy Server** — Routes your Vite dev server through VS Code
+1. **Proxy Server** — Routes your dev server through VS Code (App Mode runs your real app)
 2. **Injected Script** — Adds selection, dragging, and editing UI to your app
 3. **React Fiber Inspection** — Maps DOM elements back to source code locations
 4. **AST Modification** — Uses ts-morph to surgically edit your source files

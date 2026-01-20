@@ -39,6 +39,7 @@ function getAppModeWebviewHtml(webview, opts) {
 		#pendingBadge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(127,127,127,0.35); opacity: 0.9; }
 		#pendingBadge[data-zero="true"] { opacity: 0.55; }
 		#apply { border-color: rgba(80, 140, 255, 0.75); }
+		#applyUnsafe { border-color: rgba(255, 180, 60, 0.75); }
 		#discard { border-color: rgba(255, 120, 120, 0.65); }
 		#identityBadge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(127,127,127,0.35); opacity: 0.9; }
 		#identityBadge[data-kind="unknown"] { opacity: 0.55; }
@@ -46,6 +47,13 @@ function getAppModeWebviewHtml(webview, opts) {
 		#identityBadge[data-kind="fallback"] { border-color: rgba(255, 180, 60, 0.75); }
 		#identityBadge[data-kind="unmapped"] { border-color: rgba(255, 120, 120, 0.85); }
 		#enableStableIds { border-color: rgba(80, 180, 120, 0.75); }
+		#styleAdapter { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: transparent; }
+		#styleAdapterHint { font-size: 12px; opacity: 0.85; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		#pickCssTarget { border-color: rgba(80, 140, 255, 0.35); }
+		#cssTarget { font-size: 12px; opacity: 0.8; }
+		#viewportPreset { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: transparent; }
+		#debugWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
+		#debugWrap input { transform: translateY(1px); }
 		#tauriShimWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
 		#tauriShimWrap input { transform: translateY(1px); }
 		#layoutWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
@@ -55,8 +63,10 @@ function getAppModeWebviewHtml(webview, opts) {
 		#applyReport[data-kind="ok"] { color: rgba(80, 180, 120, 0.95); }
 		#applyReport[data-kind="warn"] { color: rgba(255, 180, 60, 0.95); }
 		#applyReport[data-kind="err"] { color: rgba(255, 120, 120, 0.95); }
-		#frameWrap { flex: 1; min-height: 0; }
-		iframe { width: 100%; height: 100%; border: 0; }
+		#frameWrap { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: stretch; background: rgba(127,127,127,0.05); }
+		#frameInner { flex: 1; min-width: 0; min-height: 0; display: flex; justify-content: center; align-items: stretch; }
+		iframe { width: 100%; height: 100%; border: 0; background: white; }
+		iframe.preset { border: 1px solid rgba(127,127,127,0.25); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); margin: 12px; }
 	</style>
 </head>
 <body>
@@ -66,8 +76,30 @@ function getAppModeWebviewHtml(webview, opts) {
 		<button id="toggle"></button>
 		<span id="pendingBadge" data-zero="true">Pending: 0</span>
 		<button id="apply" disabled>Apply to Code</button>
+		<button id="applyUnsafe" disabled title="Unsafe: applies without Stable IDs (may hit wrong element if mapping is ambiguous).">Apply Anyway</button>
 		<button id="discard" disabled>Discard</button>
-		<span id="identityBadge" data-kind="unknown" title="Stable IDs make edits apply to the correct element.">Identity: …</span>
+		<button id="identityBadge" data-kind="unknown" title="Stable IDs make edits apply to the correct element.">Identity: …</button>
+		<select id="styleAdapter" title="How style edits are applied.">
+			<option value="auto">Style Target: Auto</option>
+			<option value="tailwind">Style Target: Tailwind</option>
+			<option value="cssClass">Style Target: CSS file</option>
+			<option value="inline">Style Target: Inline</option>
+		</select>
+		<span id="styleAdapterHint" title="Why this style target is selected."></span>
+		<select id="viewportPreset" title="Preview the app at common device sizes.">
+			<option value="responsive">Viewport: Responsive</option>
+			<option value="iphone14">Viewport: iPhone 14 (390×844)</option>
+			<option value="iphone14land">Viewport: iPhone 14 (Landscape 844×390)</option>
+			<option value="iphonese">Viewport: iPhone SE (320×568)</option>
+			<option value="iphoneseland">Viewport: iPhone SE (Landscape 568×320)</option>
+			<option value="ipad">Viewport: iPad (768×1024)</option>
+		</select>
+		<label id="debugWrap" title="Visual debug overlays inside the app.">
+			<input id="debugSafe" type="checkbox" />
+			Safe-area / warnings
+		</label>
+		<button id="pickCssTarget" title="Choose which CSS file to write class-based styles into.">Pick CSS</button>
+		<span id="cssTarget" title="Current CSS target file"></span>
 		<button id="enableStableIds" title="Automatically enables Stable IDs for Vite or Next.js so the editor can always target the correct element.">Enable Stable IDs</button>
 			<label id="tauriShimWrap" title="Runs a small in-browser Tauri shim so Tauri-targeted apps can load inside App Mode. This is a stub for navigation only; native features won’t fully work.">
 				<input id="tauriShim" type="checkbox" />
@@ -82,7 +114,9 @@ function getAppModeWebviewHtml(webview, opts) {
 	</div>
 	<div id="applyReport" data-kind="ok"></div>
 	<div id="frameWrap">
-		<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}" allow="clipboard-read; clipboard-write"></iframe>
+		<div id="frameInner">
+			<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}" allow="clipboard-read; clipboard-write"></iframe>
+		</div>
 	</div>
 
 	<script nonce="${nonce}">
@@ -100,9 +134,16 @@ function getAppModeWebviewHtml(webview, opts) {
 		const helpEl = document.getElementById('help');
 		const pendingBadge = document.getElementById('pendingBadge');
 		const applyBtn = document.getElementById('apply');
+		const applyUnsafeBtn = document.getElementById('applyUnsafe');
 		const discardBtn = document.getElementById('discard');
 		const identityBadge = document.getElementById('identityBadge');
 		const enableStableIdsBtn = document.getElementById('enableStableIds');
+			const styleAdapterEl = document.getElementById('styleAdapter');
+			const styleAdapterHintEl = document.getElementById('styleAdapterHint');
+		const viewportPresetEl = document.getElementById('viewportPreset');
+		const debugSafeEl = document.getElementById('debugSafe');
+		const pickCssTargetBtn = document.getElementById('pickCssTarget');
+		const cssTargetEl = document.getElementById('cssTarget');
 		const tauriShim = document.getElementById('tauriShim');
 		const layoutApply = document.getElementById('layoutApply');
 		const applyReport = document.getElementById('applyReport');
@@ -113,6 +154,12 @@ function getAppModeWebviewHtml(webview, opts) {
 		let identityKind = 'unknown'; // 'unknown' | 'stable' | 'fallback' | 'unmapped'
 		let enablingStableIds = false;
 		let tauriShimEnabled = ${opts.tauriShimEnabled ? 'true' : 'false'};
+			let styleAdapterPref = 'auto'; // 'auto' | 'tailwind' | 'cssClass' | 'inline'
+			let styleAdapterEffective = '';
+			let styleAdapterReason = '';
+		let cssTargetLabel = '';
+		let viewportPreset = 'responsive';
+		let debugSafe = false;
 
 		if (typeof acquireVsCodeApi !== 'function') {
 			helpEl.textContent = 'App Mode UI failed to initialize (webview API blocked). Reload the window; if it persists, the webview CSP may be too strict.';
@@ -123,28 +170,79 @@ function getAppModeWebviewHtml(webview, opts) {
 			if (state && (state.mode === 'browse' || state.mode === 'edit')) mode = state.mode;
 			if (typeof state.tauriShimEnabled === 'boolean') tauriShimEnabled = state.tauriShimEnabled;
 			if (typeof state.layoutApplyEnabled === 'boolean') layoutApplyEnabled = state.layoutApplyEnabled;
+				if (state && (state.styleAdapterPref === 'auto' || state.styleAdapterPref === 'tailwind' || state.styleAdapterPref === 'cssClass' || state.styleAdapterPref === 'inline')) styleAdapterPref = state.styleAdapterPref;
+			if (state && typeof state.viewportPreset === 'string') viewportPreset = state.viewportPreset;
+			if (typeof state.debugSafe === 'boolean') debugSafe = state.debugSafe;
 		} catch {}
 		tauriShim.checked = tauriShimEnabled;
 		layoutApply.checked = layoutApplyEnabled;
-		vscode.setState({ ...(vscode.getState() || {}), mode, tauriShimEnabled, layoutApplyEnabled });
+			styleAdapterEl.value = styleAdapterPref;
+		viewportPresetEl.value = viewportPreset;
+		debugSafeEl.checked = debugSafe;
+			vscode.setState({ ...(vscode.getState() || {}), mode, tauriShimEnabled, layoutApplyEnabled, styleAdapterPref, viewportPreset, debugSafe });
+
+		function applyViewportPreset() {
+			const presets = {
+				responsive: null,
+				iphone14: { w: 390, h: 844 },
+				iphone14land: { w: 844, h: 390 },
+				iphonese: { w: 320, h: 568 },
+				iphoneseland: { w: 568, h: 320 },
+				ipad: { w: 768, h: 1024 },
+			};
+			const p = presets[viewportPreset] || null;
+			if (!p) {
+				iframe.classList.remove('preset');
+				iframe.style.width = '100%';
+				iframe.style.height = '100%';
+				return;
+			}
+			iframe.classList.add('preset');
+			iframe.style.width = p.w + 'px';
+			iframe.style.height = p.h + 'px';
+		}
+
+		function sendDebug() {
+			try {
+				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:setDebug', safe: !!debugSafe }, iframeOrigin);
+			} catch {}
+		}
 
 		function render() {
 			modeEl.textContent = mode === 'edit' ? 'Mode: Edit' : 'Mode: Browse';
 			toggleBtn.textContent = mode === 'edit' ? 'Switch to Browse' : 'Switch to Edit';
 			pendingBadge.textContent = 'Pending: ' + String(pendingCount || 0);
 			pendingBadge.dataset.zero = pendingCount ? 'false' : 'true';
-			applyBtn.disabled = pendingCount <= 0;
+			const stable = identityKind === 'stable';
+			applyBtn.disabled = pendingCount <= 0 || !stable;
+			applyUnsafeBtn.disabled = pendingCount <= 0;
+			applyUnsafeBtn.style.display = stable ? 'none' : 'inline-block';
 			discardBtn.disabled = pendingCount <= 0;
 			layoutApply.checked = !!layoutApplyEnabled;
 			tauriShim.checked = !!tauriShimEnabled;
+				styleAdapterEl.value = styleAdapterPref;
+			viewportPresetEl.value = viewportPreset;
+			debugSafeEl.checked = !!debugSafe;
+			applyViewportPreset();
+				const eff = styleAdapterEffective || '';
+				const showCss = eff === 'cssClass' || styleAdapterPref === 'cssClass' || (styleAdapterPref === 'auto' && eff === '');
+				pickCssTargetBtn.style.display = showCss ? 'inline-block' : 'none';
+				cssTargetEl.style.display = showCss ? 'inline-block' : 'none';
+				cssTargetEl.textContent = cssTargetLabel
+					? ('CSS: ' + cssTargetLabel)
+					: (showCss ? 'CSS: (not set)' : '');
+				styleAdapterHintEl.textContent = styleAdapterReason
+					? styleAdapterReason
+					: (eff ? ('Using: ' + eff) : '');
 			identityBadge.dataset.kind = identityKind;
 			identityBadge.textContent = identityKind === 'stable'
 				? 'Identity: Stable'
 				: identityKind === 'fallback'
-					? 'Identity: Fallback'
+					? 'Fix targeting (Fallback)'
 					: identityKind === 'unmapped'
-						? 'Identity: Unmapped'
-					: 'Identity: …';
+						? 'Fix targeting (Unmapped)'
+				: 'Fix targeting';
+			identityBadge.disabled = identityKind === 'stable' || enablingStableIds;
 			enableStableIdsBtn.disabled = enablingStableIds;
 			helpEl.textContent = mode === 'edit'
 				? 'Edit: hover highlights, click selects, Ctrl/Cmd+Click jumps to code. Shift+Click toggles multi-select. Shift+Drag draws a selection box. Alt+Click selects exact leaf. Tip: select an element, then use UI Wizard.'
@@ -153,9 +251,22 @@ function getAppModeWebviewHtml(webview, opts) {
 
 		function sendMode() {
 			try {
-				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:setMode', mode }, '*');
+				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:setMode', mode }, iframeOrigin);
 			} catch {}
 		}
+
+		viewportPresetEl.addEventListener('change', () => {
+			viewportPreset = String(viewportPresetEl.value || 'responsive');
+			try { vscode.setState({ ...(vscode.getState() || {}), viewportPreset }); } catch {}
+			render();
+		});
+
+		debugSafeEl.addEventListener('change', () => {
+			debugSafe = !!debugSafeEl.checked;
+			try { vscode.setState({ ...(vscode.getState() || {}), debugSafe }); } catch {}
+			sendDebug();
+			render();
+		});
 
 		toggleBtn.addEventListener('click', () => {
 			mode = mode === 'edit' ? 'browse' : 'edit';
@@ -167,6 +278,7 @@ function getAppModeWebviewHtml(webview, opts) {
 		iframe.addEventListener('load', () => {
 			// Ensure the injected client picks up our current mode after navigation/reload.
 			sendMode();
+			sendDebug();
 		});
 
 		render();
@@ -174,6 +286,10 @@ function getAppModeWebviewHtml(webview, opts) {
 
 		applyBtn.addEventListener('click', () => {
 			vscode.postMessage({ command: 'applyPendingEdits' });
+		});
+
+		applyUnsafeBtn.addEventListener('click', () => {
+			vscode.postMessage({ command: 'applyPendingEdits', forceUnsafe: true });
 		});
 
 		discardBtn.addEventListener('click', () => {
@@ -185,6 +301,19 @@ function getAppModeWebviewHtml(webview, opts) {
 			enableStableIdsBtn.textContent = 'Enabling…';
 			render();
 			vscode.postMessage({ command: 'enableStableIds' });
+		});
+
+		identityBadge.addEventListener('click', () => {
+			if (identityKind === 'stable') return;
+			if (enablingStableIds) return;
+			enablingStableIds = true;
+			enableStableIdsBtn.textContent = 'Enabling…';
+			render();
+			vscode.postMessage({ command: 'fixTargeting' });
+		});
+
+		pickCssTargetBtn.addEventListener('click', () => {
+			vscode.postMessage({ command: 'pickCssTarget' });
 		});
 
 		layoutApply.addEventListener('change', () => {
@@ -210,6 +339,13 @@ function getAppModeWebviewHtml(webview, opts) {
 			} catch {
 				return;
 			}
+
+			styleAdapterEl.addEventListener('change', () => {
+				styleAdapterPref = String(styleAdapterEl.value || 'auto');
+				try { vscode.setState({ ...(vscode.getState() || {}), styleAdapterPref }); } catch {}
+				try { vscode.postMessage({ command: 'setStyleAdapter', adapter: styleAdapterPref }); } catch {}
+				render();
+			});
 			const data = ev.data;
 			if (!data || typeof data !== 'object') return;
 			if (data.__liveUiEditor === true && data.message) {
@@ -248,12 +384,38 @@ function getAppModeWebviewHtml(webview, opts) {
 				render();
 				return;
 			}
+			if (msg.command === 'appModeHint') {
+				try {
+					helpEl.textContent = typeof msg.text === 'string' ? msg.text : helpEl.textContent;
+				} catch {}
+				return;
+			}
+			if (msg.command === 'appModeCssTarget') {
+				try {
+					cssTargetLabel = typeof msg.label === 'string' ? msg.label : cssTargetLabel;
+					render();
+				} catch {}
+				return;
+			}
+				if (msg.command === 'appModeStyleAdapter') {
+					try {
+						if (msg.preference === 'auto' || msg.preference === 'tailwind' || msg.preference === 'cssClass' || msg.preference === 'inline') {
+							styleAdapterPref = msg.preference;
+							styleAdapterEl.value = styleAdapterPref;
+							try { vscode.setState({ ...(vscode.getState() || {}), styleAdapterPref }); } catch {}
+						}
+						styleAdapterEffective = typeof msg.effective === 'string' ? msg.effective : styleAdapterEffective;
+						styleAdapterReason = typeof msg.reason === 'string' ? msg.reason : styleAdapterReason;
+						render();
+					} catch {}
+					return;
+				}
 			if (msg.command === 'previewStyle') {
-				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:previewStyle', style: msg.style }, '*');
+				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:previewStyle', style: msg.style }, iframeOrigin);
 				return;
 			}
 			if (msg.command === 'clearPreview') {
-				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:clearPreview' }, '*');
+				iframe.contentWindow?.postMessage({ type: 'live-ui-editor:clearPreview' }, iframeOrigin);
 				return;
 			}
 			if (msg.command === 'requestTargets') {

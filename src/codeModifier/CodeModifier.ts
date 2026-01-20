@@ -12,6 +12,75 @@ export type UpdateTextResult = {
 };
 
 export class CodeModifier {
+	public async ensureClassNames(
+		fileUri: vscode.Uri,
+		lineNumber: number,
+		classNames: string[],
+		columnNumber?: number,
+		elementContext?: {
+			tagName: string;
+			id?: string;
+			classList?: string[];
+			role?: string;
+			href?: string;
+			type?: string;
+			text?: string;
+		}
+	): Promise<boolean> {
+		const ext = fileUri.path.toLowerCase();
+		if (!(ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js'))) {
+			return false;
+		}
+
+		const doc = await vscode.workspace.openTextDocument(fileUri);
+		const text = doc.getText();
+		const updatedText = ensureJsxClassNamesAtLocation(text, fileUri.fsPath, lineNumber, classNames, columnNumber, elementContext);
+		if (!updatedText || updatedText === text) return false;
+		const edit = new vscode.WorkspaceEdit();
+		edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+		const applied = await vscode.workspace.applyEdit(edit);
+		if (!applied) throw new Error('Failed to apply WorkspaceEdit');
+		await doc.save();
+		return true;
+	}
+
+	public async ensureClassName(
+		fileUri: vscode.Uri,
+		lineNumber: number,
+		className: string,
+		columnNumber?: number,
+		elementContext?: {
+			tagName: string;
+			id?: string;
+			classList?: string[];
+			role?: string;
+			href?: string;
+			type?: string;
+			text?: string;
+		}
+	): Promise<boolean> {
+		return this.ensureClassNames(fileUri, lineNumber, [className], columnNumber, elementContext);
+	}
+
+	public async upsertCssClassRule(
+		cssFileUri: vscode.Uri,
+		className: string,
+		newStyles: Record<string, string>
+	): Promise<boolean> {
+		const ext = cssFileUri.path.toLowerCase();
+		if (!ext.endsWith('.css')) return false;
+		const doc = await vscode.workspace.openTextDocument(cssFileUri);
+		const text = doc.getText();
+		const updatedText = upsertCssClassRule(text, className, newStyles);
+		if (!updatedText || updatedText === text) return false;
+		const edit = new vscode.WorkspaceEdit();
+		edit.replace(cssFileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+		const applied = await vscode.workspace.applyEdit(edit);
+		if (!applied) throw new Error('Failed to apply WorkspaceEdit');
+		await doc.save();
+		return true;
+	}
+
 	public async updateStyleByElementId(
 		fileUri: vscode.Uri,
 		elementId: string,
@@ -373,6 +442,119 @@ export class CodeModifier {
 		await doc.save();
 		return true;
 	}
+}
+
+function ensureJsxClassNamesAtLocation(
+	input: string,
+	filePathForProject: string,
+	lineNumber: number,
+	classNames: string[],
+	columnNumber?: number,
+	ctx?: { tagName: string; id?: string; classList?: string[]; role?: string; href?: string; type?: string; text?: string }
+): string {
+	const desired = (Array.isArray(classNames) ? classNames : [])
+		.map(x => String(x || '').trim())
+		.filter(Boolean);
+	if (desired.length === 0) return input;
+
+	const project = new Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+	const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+	const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+	if (!target) return input;
+	const opening = getOpeningElement(target);
+	if (!opening) return input;
+
+	const classAttr = opening
+		.getAttributes()
+		.find(a => a.getKind() === SyntaxKind.JsxAttribute && (a as JsxAttribute).getNameNode().getText() === 'className') as JsxAttribute | undefined;
+
+	if (!classAttr) {
+		const cn = desired.join(' ');
+		opening.addAttribute({ name: 'className', initializer: `'${cn.replace(/'/g, "\\'")}'` });
+		return sourceFile.getFullText();
+	}
+
+	const init = classAttr.getInitializer();
+	if (!init) {
+		const cn = desired.join(' ');
+		classAttr.setInitializer(`'${cn.replace(/'/g, "\\'")}'`);
+		return sourceFile.getFullText();
+	}
+
+	// Support only simple string initializers for the MVP.
+	let existingValue: string | undefined;
+	if (init.getKind() === SyntaxKind.StringLiteral) {
+		existingValue = unquoteStringLiteralText(init.getText());
+	} else if (init.getKind() === SyntaxKind.JsxExpression) {
+		const expr = init.asKindOrThrow(SyntaxKind.JsxExpression).getExpression();
+		if (expr && expr.getKind() === SyntaxKind.StringLiteral) {
+			existingValue = unquoteStringLiteralText(expr.getText());
+		}
+	}
+	if (existingValue === undefined) return input;
+
+	const parts = existingValue.split(/\s+/).filter(Boolean);
+	let changed = false;
+	for (const cn of desired) {
+		if (parts.includes(cn)) continue;
+		parts.push(cn);
+		changed = true;
+	}
+	if (!changed) return input;
+	const next = parts.join(' ');
+	classAttr.setInitializer(`'${next.replace(/'/g, "\\'")}'`);
+	return sourceFile.getFullText();
+}
+
+function cssPropNameFromJs(k: string): string {
+	return String(k || '')
+		.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+		.replace(/_/g, '-')
+		.toLowerCase();
+}
+
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function upsertCssClassRule(input: string, className: string, newStyles: Record<string, string>): string {
+	const cn = String(className || '').trim().replace(/^\./, '');
+	if (!cn) return input;
+
+	const filtered = normalizeInlineStylePatch(newStyles);
+	if (Object.keys(filtered).length === 0) return input;
+
+	const selector = `.${cn}`;
+	const re = new RegExp(`(^|\\n)\\s*${escapeRegExp(selector)}\\s*\\{`, 'm');
+	const match = re.exec(input);
+
+	const desiredDecls = Object.entries(filtered).map(([k, v]) => [cssPropNameFromJs(k), v] as const);
+
+	if (!match) {
+		const lines = desiredDecls.map(([k, v]) => `  ${k}: ${v};`).join('\n');
+		const suffix = input.endsWith('\n') ? '' : '\n';
+		return input + `${suffix}\n${selector} {\n${lines}\n}\n`;
+	}
+
+	const start = match.index + match[0].length;
+	// Find the end of the rule by scanning for the next '}'
+	const end = input.indexOf('}', start);
+	if (end < 0) return input;
+	const body = input.slice(start, end);
+
+	// Parse existing declarations (naive but ok for MVP)
+	const declMap = new Map<string, string>();
+	for (const line of body.split(/\r?\n/)) {
+		const m = line.trim().match(/^([a-zA-Z0-9_-]+)\s*:\s*([^;]+);?$/);
+		if (!m) continue;
+		declMap.set(m[1], m[2].trim());
+	}
+	for (const [k, v] of desiredDecls) {
+		declMap.set(k, v);
+	}
+	const nextLines = Array.from(declMap.entries()).map(([k, v]) => `  ${k}: ${v};`).join('\n');
+	const nextBody = `\n${nextLines}\n`;
+	return input.slice(0, start) + nextBody + input.slice(end);
 }
 
 function deleteJsxElement(

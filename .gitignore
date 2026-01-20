@@ -15,6 +15,9 @@ dist/
 !.vscode/tasks.json
 .idea/
 
+# Workspace files
+*.code-workspace
+
 # OS files
 .DS_Store
 Thumbs.db

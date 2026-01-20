@@ -50,6 +50,7 @@ const tauriShim_1 = require("./appMode/tauriShim");
 const appUtils_1 = require("./appMode/appUtils");
 const viteUtils_1 = require("./appMode/viteUtils");
 const detachedDevServer_1 = require("./appMode/detachedDevServer");
+const styleAdapters_1 = require("./appMode/styleAdapters");
 const path = __importStar(require("path"));
 const cp = __importStar(require("child_process"));
 function activate(context) {
@@ -744,6 +745,24 @@ export default function liveUiEditorBabelPlugin(babel) {
         let warnedLayoutApplyBlocked = false;
         let warnedUnmappedSelection = false;
         let warnedAppModePathBlocked = false;
+        let styleAdapterPref = 'auto';
+        let styleDetection = appRoot ? await (0, styleAdapters_1.detectStyleSystems)(appRoot) : undefined;
+        let cssTargetUri;
+        const stylePrefKey = appRoot ? `lui.appMode.styleAdapterPref:${appRoot.fsPath}` : undefined;
+        const inlineRiskWarnKey = appRoot ? `lui.appMode.inlineRiskWarn:${appRoot.fsPath}` : undefined;
+        let inlineRiskWarnMode = 'ask';
+        if (inlineRiskWarnKey) {
+            const saved = context.workspaceState.get(inlineRiskWarnKey);
+            if (saved === 'ask' || saved === 'auto' || saved === 'inline' || saved === 'off') {
+                inlineRiskWarnMode = saved;
+            }
+        }
+        if (stylePrefKey) {
+            const saved = context.workspaceState.get(stylePrefKey);
+            if (saved === 'auto' || saved === 'inline' || saved === 'cssClass' || saved === 'tailwind') {
+                styleAdapterPref = saved;
+            }
+        }
         const resolveAppModeFileIdToUri = (fileId) => {
             const u = resolveFileIdToUriAppMode(fileId, appRoot);
             if (!u) {
@@ -771,6 +790,108 @@ export default function liveUiEditorBabelPlugin(babel) {
                 panel?.webview.postMessage({ command: 'appModePendingCount', count: pendingEdits.size });
             }
             catch { }
+        }
+        function hashFnv1a32(input) {
+            let hash = 0x811c9dc5;
+            for (let i = 0; i < input.length; i++) {
+                hash ^= input.charCodeAt(i);
+                // eslint-disable-next-line no-bitwise
+                hash = (hash * 0x01000193) >>> 0;
+            }
+            return hash >>> 0;
+        }
+        function classNameFromElementId(elementId) {
+            const h = hashFnv1a32(elementId).toString(16).padStart(8, '0');
+            return `lui-${h}`;
+        }
+        async function exists(uri) {
+            try {
+                await vscode.workspace.fs.stat(uri);
+                return true;
+            }
+            catch {
+                return false;
+            }
+        }
+        async function setCssTargetUri(next) {
+            cssTargetUri = next;
+            if (!panel)
+                return;
+            const label = cssTargetUri ? vscode.workspace.asRelativePath(cssTargetUri, false) : '';
+            try {
+                panel.webview.postMessage({ command: 'appModeCssTarget', label });
+            }
+            catch { }
+        }
+        function publishStyleAdapterInfo(effective, reason) {
+            if (!panel)
+                return;
+            try {
+                panel.webview.postMessage({
+                    command: 'appModeStyleAdapter',
+                    preference: styleAdapterPref,
+                    effective: effective || undefined,
+                    reason: reason || '',
+                    detected: styleDetection ? {
+                        tailwind: styleDetection.tailwind,
+                        cssModules: styleDetection.cssModules,
+                        cssInJs: styleDetection.cssInJs,
+                        cssFiles: styleDetection.cssFiles,
+                    } : undefined,
+                });
+            }
+            catch { }
+        }
+        function resolveEffectiveStyleAdapter() {
+            if (styleAdapterPref !== 'auto') {
+                return { effective: styleAdapterPref, reason: `Override: ${styleAdapterPref}` };
+            }
+            if (styleDetection?.tailwind.present) {
+                return { effective: 'tailwind', reason: `Auto → Tailwind. ${styleDetection.tailwind.reason}` };
+            }
+            return { effective: 'cssClass', reason: 'Auto → CSS file class (Tailwind not detected).' };
+        }
+        async function ensureCssTargetUri() {
+            if (cssTargetUri)
+                return cssTargetUri;
+            if (!appRoot)
+                return undefined;
+            const candidates = appFramework === 'next'
+                ? [
+                    'app/globals.css',
+                    'src/app/globals.css',
+                    'src/styles/globals.css',
+                    'src/globals.css',
+                    'src/index.css',
+                ]
+                : [
+                    'src/index.css',
+                    'src/main.css',
+                    'src/app.css',
+                    'src/styles.css',
+                    'src/global.css',
+                    'src/styles/global.css',
+                ];
+            for (const rel of candidates) {
+                const u = vscode.Uri.joinPath(appRoot, rel);
+                if (await exists(u)) {
+                    await setCssTargetUri(u);
+                    return u;
+                }
+            }
+            return undefined;
+        }
+        function adapterTryOrder(pref) {
+            if (pref === 'inline')
+                return ['inline'];
+            if (pref === 'tailwind')
+                return ['tailwind', 'inline'];
+            if (pref === 'cssClass')
+                return ['cssClass', 'inline'];
+            // auto
+            if (styleDetection?.tailwind.present)
+                return ['tailwind', 'cssClass', 'inline'];
+            return ['cssClass', 'inline'];
         }
         async function applyPendingEditsToCode() {
             if (pendingEdits.size === 0)
@@ -838,12 +959,64 @@ export default function liveUiEditorBabelPlugin(babel) {
                             }
                             let changed = false;
                             let method;
-                            // elementId-based apply only works if the source actually contains data-lui.
-                            // In Vite, our Stable IDs are injected at build-time, so source often won't include it.
-                            if (e.elementId && typeof codeModifier.updateStyleByElementId === 'function') {
-                                changed = await codeModifier.updateStyleByElementId(targetUri, e.elementId, style);
-                                if (changed)
-                                    method = 'elementId';
+                            let reason;
+                            const tryOrder = adapterTryOrder(styleAdapterPref);
+                            for (const adapter of tryOrder) {
+                                if (adapter === 'tailwind') {
+                                    if (!styleDetection?.tailwind.present) {
+                                        reason = 'Tailwind not detected.';
+                                        continue;
+                                    }
+                                    const tokens = (0, styleAdapters_1.tailwindTokensFromStylePatch)(style);
+                                    if (tokens.length === 0) {
+                                        reason = 'No Tailwind-mappable style properties.';
+                                        continue;
+                                    }
+                                    const ok = await codeModifier.ensureClassNames(targetUri, e.line, tokens, e.column, e.elementContext);
+                                    if (ok) {
+                                        changed = true;
+                                        method = 'tailwind';
+                                        reason = `Tailwind: added ${tokens.slice(0, 6).join(' ')}${tokens.length > 6 ? '…' : ''}`;
+                                        break;
+                                    }
+                                    // If className is complex, fall back.
+                                    reason = 'Tailwind adapter could not update className (complex expression).';
+                                    continue;
+                                }
+                                if (adapter === 'cssClass') {
+                                    const cssUri = await ensureCssTargetUri();
+                                    if (!cssUri) {
+                                        reason = 'No CSS target file (click “Pick CSS”).';
+                                        continue;
+                                    }
+                                    if (!e.elementId) {
+                                        reason = 'CSS class adapter requires Stable IDs (no elementId).';
+                                        continue;
+                                    }
+                                    const className = classNameFromElementId(e.elementId);
+                                    const classChanged = await codeModifier.ensureClassName(targetUri, e.line, className, e.column, e.elementContext);
+                                    const cssChanged = await codeModifier.upsertCssClassRule(cssUri, className, style);
+                                    changed = classChanged || cssChanged;
+                                    if (changed) {
+                                        method = 'class';
+                                        reason = 'CSS: wrote/updated class rule.';
+                                        break;
+                                    }
+                                    reason = 'CSS class adapter made no change.';
+                                    continue;
+                                }
+                                if (adapter === 'inline') {
+                                    break;
+                                }
+                            }
+                            if (!changed) {
+                                // elementId-based apply only works if the source actually contains data-lui.
+                                // In Vite, our Stable IDs are injected at build-time, so source often won't include it.
+                                if (e.elementId && typeof codeModifier.updateStyleByElementId === 'function') {
+                                    changed = await codeModifier.updateStyleByElementId(targetUri, e.elementId, style);
+                                    if (changed)
+                                        method = 'elementId';
+                                }
                             }
                             if (!changed) {
                                 changed = await codeModifier.updateStyle(targetUri, e.line, style, e.column, e.elementContext);
@@ -851,11 +1024,11 @@ export default function liveUiEditorBabelPlugin(babel) {
                                     method = 'location';
                             }
                             if (changed) {
-                                items.push({ ...base, ok: true, method });
+                                items.push({ ...base, ok: true, method, reason });
                                 appliedCount++;
                             }
                             else {
-                                items.push({ ...base, ok: false, method, reason: 'no change (node not found or identical value)' });
+                                items.push({ ...base, ok: false, method, reason: reason || 'no change (node not found or identical value)' });
                                 failedCount++;
                             }
                         }
@@ -917,6 +1090,12 @@ export default function liveUiEditorBabelPlugin(babel) {
                 tauriShimEnabled,
             });
             publishPendingCount();
+            const resolved = resolveEffectiveStyleAdapter();
+            publishStyleAdapterInfo(resolved.effective, resolved.reason);
+            // If we're likely to use CSS class mode, try to auto-detect a CSS target.
+            if (resolved.effective === 'cssClass') {
+                void ensureCssTargetUri();
+            }
             created.onDidDispose(() => {
                 if (currentPanel === created)
                     currentPanel = undefined;
@@ -954,6 +1133,95 @@ export default function liveUiEditorBabelPlugin(babel) {
             created.webview.onDidReceiveMessage(async (message) => {
                 if (!(0, messages_1.isFromWebviewMessage)(message))
                     return;
+                if (message.command === 'setStyleAdapter') {
+                    styleAdapterPref = message.adapter;
+                    if (stylePrefKey)
+                        void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+                    output.appendLine(`[appMode] styleAdapterPref=${styleAdapterPref}`);
+                    const resolved = resolveEffectiveStyleAdapter();
+                    publishStyleAdapterInfo(resolved.effective, resolved.reason);
+                    if (resolved.effective === 'cssClass')
+                        void ensureCssTargetUri();
+                    return;
+                }
+                if (message.command === 'setStyleApplyMode') {
+                    // Back-compat: map old class/inline mode to adapter preference.
+                    styleAdapterPref = message.mode === 'class' ? 'cssClass' : 'inline';
+                    if (stylePrefKey)
+                        void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+                    output.appendLine(`[appMode] styleAdapterPref=${styleAdapterPref} (from legacy setStyleApplyMode)`);
+                    const resolved = resolveEffectiveStyleAdapter();
+                    publishStyleAdapterInfo(resolved.effective, resolved.reason);
+                    if (resolved.effective === 'cssClass')
+                        void ensureCssTargetUri();
+                    return;
+                }
+                if (message.command === 'pickCssTarget') {
+                    if (!appRoot)
+                        return;
+                    const picked = await vscode.window.showOpenDialog({
+                        canSelectMany: false,
+                        canSelectFiles: true,
+                        canSelectFolders: false,
+                        title: 'Live UI Editor: Pick CSS target file',
+                        defaultUri: appRoot,
+                        filters: { 'CSS': ['css'] },
+                    });
+                    if (!picked || picked.length === 0)
+                        return;
+                    const u = picked[0];
+                    if (!isWithinBasePath(u.fsPath, appRoot.fsPath)) {
+                        vscode.window.showWarningMessage('Live UI Editor: CSS target must be within the app root folder.');
+                        return;
+                    }
+                    await setCssTargetUri(u);
+                    return;
+                }
+                if (message.command === 'fixTargeting') {
+                    // Alias for enableStableIds, but also guides the user to reselect after reload.
+                    try {
+                        const confirm = await vscode.window.showWarningMessage(appFramework === 'next'
+                            ? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
+                            : 'Live UI Editor can enable Stable IDs by modifying your Vite config and adding a small dev-only plugin file. This makes targeting reliable. Proceed?', { modal: true }, 'Enable', 'Cancel');
+                        if (confirm !== 'Enable') {
+                            try {
+                                created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false });
+                            }
+                            catch { }
+                            return;
+                        }
+                        const res = appFramework === 'next'
+                            ? await enableStableIdsInNextApp(appRoot)
+                            : await enableStableIdsInViteApp(appRoot);
+                        if (res.ok)
+                            vscode.window.showInformationMessage(res.message);
+                        else
+                            vscode.window.showErrorMessage(`Live UI Editor: ${res.message}`);
+                        try {
+                            created.webview.postMessage({ command: 'appModeStableIdsResult', ok: res.ok, message: res.message });
+                        }
+                        catch { }
+                        if (res.ok) {
+                            try {
+                                created.webview.postMessage({ command: 'appModeHint', text: 'Stable IDs enabled. Reloading… after reload, click the element again to select it.' });
+                            }
+                            catch { }
+                            try {
+                                created.webview.postMessage({ command: 'appModeReload' });
+                            }
+                            catch { }
+                        }
+                    }
+                    catch (err) {
+                        output.appendLine(`[stableIds:error] ${String(err)}`);
+                        vscode.window.showErrorMessage('Live UI Editor: Failed to enable Stable IDs. Check Output → Live UI Editor.');
+                        try {
+                            created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false });
+                        }
+                        catch { }
+                    }
+                    return;
+                }
                 if (message.command === 'enableStableIds') {
                     try {
                         const confirm = await vscode.window.showWarningMessage(appFramework === 'next'
@@ -1003,6 +1271,128 @@ export default function liveUiEditorBabelPlugin(babel) {
                     return;
                 }
                 if (message.command === 'applyPendingEdits') {
+                    // Safety: inline style edits that touch layout-sensitive props often break mobile/responsive layouts.
+                    // Offer a chance to switch to Auto (Tailwind/CSS class) before writing inline overrides.
+                    const hasRiskyInlineStyles = (() => {
+                        if (styleAdapterPref !== 'inline')
+                            return false;
+                        const risky = new Set([
+                            'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+                            'position', 'top', 'right', 'bottom', 'left',
+                            'display', 'flex', 'flexDirection', 'flexWrap', 'justifyContent', 'alignItems', 'alignContent',
+                            'grid', 'gridTemplateColumns', 'gridTemplateRows', 'gridAutoFlow',
+                            'transform',
+                            'overflow', 'overflowX', 'overflowY',
+                            'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+                            'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+                        ]);
+                        for (const e of pendingEdits.values()) {
+                            if (e.kind !== 'style')
+                                continue;
+                            for (const k of Object.keys(e.style || {})) {
+                                if (risky.has(k))
+                                    return true;
+                            }
+                        }
+                        return false;
+                    })();
+                    if (hasRiskyInlineStyles && inlineRiskWarnMode !== 'off') {
+                        if (inlineRiskWarnMode === 'auto') {
+                            styleAdapterPref = 'auto';
+                            if (stylePrefKey)
+                                void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+                            const resolved = resolveEffectiveStyleAdapter();
+                            publishStyleAdapterInfo(resolved.effective, resolved.reason);
+                            if (resolved.effective === 'cssClass')
+                                void ensureCssTargetUri();
+                        }
+                        else if (inlineRiskWarnMode === 'inline') {
+                            // Proceed without prompting.
+                        }
+                        else {
+                            const choice = await vscode.window.showWarningMessage('Live UI Editor (App Mode): You are about to apply inline layout styles (e.g. width/height/position/transform). Inline styles override responsive CSS and can break mobile layouts.\n\nTip: Use “Auto” to write Tailwind tokens or a CSS class rule instead.', { modal: true }, 'Switch to Auto (recommended)', 'Continue Inline', 'Always switch to Auto', 'Always continue Inline', "Don't warn again", 'Cancel');
+                            if (!choice || choice === 'Cancel')
+                                return;
+                            if (choice === "Don't warn again") {
+                                inlineRiskWarnMode = 'off';
+                                if (inlineRiskWarnKey)
+                                    void context.workspaceState.update(inlineRiskWarnKey, inlineRiskWarnMode);
+                            }
+                            if (choice === 'Always switch to Auto') {
+                                inlineRiskWarnMode = 'auto';
+                                if (inlineRiskWarnKey)
+                                    void context.workspaceState.update(inlineRiskWarnKey, inlineRiskWarnMode);
+                                styleAdapterPref = 'auto';
+                                if (stylePrefKey)
+                                    void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+                                const resolved = resolveEffectiveStyleAdapter();
+                                publishStyleAdapterInfo(resolved.effective, resolved.reason);
+                                if (resolved.effective === 'cssClass')
+                                    void ensureCssTargetUri();
+                            }
+                            if (choice === 'Switch to Auto (recommended)') {
+                                styleAdapterPref = 'auto';
+                                if (stylePrefKey)
+                                    void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+                                const resolved = resolveEffectiveStyleAdapter();
+                                publishStyleAdapterInfo(resolved.effective, resolved.reason);
+                                if (resolved.effective === 'cssClass')
+                                    void ensureCssTargetUri();
+                            }
+                            if (choice === 'Always continue Inline') {
+                                inlineRiskWarnMode = 'inline';
+                                if (inlineRiskWarnKey)
+                                    void context.workspaceState.update(inlineRiskWarnKey, inlineRiskWarnMode);
+                            }
+                            // 'Continue Inline' proceeds without changes.
+                        }
+                    }
+                    const hasUnsafe = Array.from(pendingEdits.values()).some(e => !e.elementId);
+                    if (hasUnsafe && !message.forceUnsafe) {
+                        const choice = await vscode.window.showWarningMessage('Live UI Editor (App Mode): Apply is blocked because the selection is not using Stable IDs (targeting may be ambiguous).', { modal: true }, 'Fix targeting', 'Apply anyway (unsafe)', 'Cancel');
+                        if (choice === 'Fix targeting') {
+                            try {
+                                created.webview.postMessage({ command: 'appModeHint', text: 'Enable Stable IDs, then reselect the element.' });
+                            }
+                            catch { }
+                            // Trigger the same flow as the badge.
+                            try {
+                                created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false });
+                            }
+                            catch { }
+                            // Ask webview to send fixTargeting; but we can just run it here.
+                            // Reuse our handler by calling enableStableIds flow directly.
+                            const confirm = await vscode.window.showWarningMessage(appFramework === 'next'
+                                ? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
+                                : 'Live UI Editor can enable Stable IDs by modifying your Vite config and adding a small dev-only plugin file. This makes targeting reliable. Proceed?', { modal: true }, 'Enable', 'Cancel');
+                            if (confirm === 'Enable') {
+                                const res = appFramework === 'next'
+                                    ? await enableStableIdsInNextApp(appRoot)
+                                    : await enableStableIdsInViteApp(appRoot);
+                                try {
+                                    created.webview.postMessage({ command: 'appModeStableIdsResult', ok: res.ok, message: res.message });
+                                }
+                                catch { }
+                                if (res.ok) {
+                                    vscode.window.showInformationMessage(res.message);
+                                    try {
+                                        created.webview.postMessage({ command: 'appModeHint', text: 'Stable IDs enabled. Reloading… after reload, click the element again to select it.' });
+                                    }
+                                    catch { }
+                                    try {
+                                        created.webview.postMessage({ command: 'appModeReload' });
+                                    }
+                                    catch { }
+                                }
+                                else {
+                                    vscode.window.showErrorMessage(`Live UI Editor: ${res.message}`);
+                                }
+                            }
+                            return;
+                        }
+                        if (choice !== 'Apply anyway (unsafe)')
+                            return;
+                    }
                     const res = await applyPendingEditsToCode();
                     try {
                         created.webview.postMessage({

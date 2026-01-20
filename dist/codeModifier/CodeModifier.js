@@ -40,6 +40,44 @@ const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const ts_morph_1 = require("ts-morph");
 class CodeModifier {
+    async ensureClassNames(fileUri, lineNumber, classNames, columnNumber, elementContext) {
+        const ext = fileUri.path.toLowerCase();
+        if (!(ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js'))) {
+            return false;
+        }
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        const text = doc.getText();
+        const updatedText = ensureJsxClassNamesAtLocation(text, fileUri.fsPath, lineNumber, classNames, columnNumber, elementContext);
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
+    async ensureClassName(fileUri, lineNumber, className, columnNumber, elementContext) {
+        return this.ensureClassNames(fileUri, lineNumber, [className], columnNumber, elementContext);
+    }
+    async upsertCssClassRule(cssFileUri, className, newStyles) {
+        const ext = cssFileUri.path.toLowerCase();
+        if (!ext.endsWith('.css'))
+            return false;
+        const doc = await vscode.workspace.openTextDocument(cssFileUri);
+        const text = doc.getText();
+        const updatedText = upsertCssClassRule(text, className, newStyles);
+        if (!updatedText || updatedText === text)
+            return false;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(cssFileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied)
+            throw new Error('Failed to apply WorkspaceEdit');
+        await doc.save();
+        return true;
+    }
     async updateStyleByElementId(fileUri, elementId, newStyles) {
         const ext = fileUri.path.toLowerCase();
         const doc = await vscode.workspace.openTextDocument(fileUri);
@@ -310,6 +348,107 @@ class CodeModifier {
     }
 }
 exports.CodeModifier = CodeModifier;
+function ensureJsxClassNamesAtLocation(input, filePathForProject, lineNumber, classNames, columnNumber, ctx) {
+    const desired = (Array.isArray(classNames) ? classNames : [])
+        .map(x => String(x || '').trim())
+        .filter(Boolean);
+    if (desired.length === 0)
+        return input;
+    const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+    const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+    const target = findBestJsxNodeAtLocation(sourceFile, lineNumber, columnNumber, ctx);
+    if (!target)
+        return input;
+    const opening = getOpeningElement(target);
+    if (!opening)
+        return input;
+    const classAttr = opening
+        .getAttributes()
+        .find(a => a.getKind() === ts_morph_1.SyntaxKind.JsxAttribute && a.getNameNode().getText() === 'className');
+    if (!classAttr) {
+        const cn = desired.join(' ');
+        opening.addAttribute({ name: 'className', initializer: `'${cn.replace(/'/g, "\\'")}'` });
+        return sourceFile.getFullText();
+    }
+    const init = classAttr.getInitializer();
+    if (!init) {
+        const cn = desired.join(' ');
+        classAttr.setInitializer(`'${cn.replace(/'/g, "\\'")}'`);
+        return sourceFile.getFullText();
+    }
+    // Support only simple string initializers for the MVP.
+    let existingValue;
+    if (init.getKind() === ts_morph_1.SyntaxKind.StringLiteral) {
+        existingValue = unquoteStringLiteralText(init.getText());
+    }
+    else if (init.getKind() === ts_morph_1.SyntaxKind.JsxExpression) {
+        const expr = init.asKindOrThrow(ts_morph_1.SyntaxKind.JsxExpression).getExpression();
+        if (expr && expr.getKind() === ts_morph_1.SyntaxKind.StringLiteral) {
+            existingValue = unquoteStringLiteralText(expr.getText());
+        }
+    }
+    if (existingValue === undefined)
+        return input;
+    const parts = existingValue.split(/\s+/).filter(Boolean);
+    let changed = false;
+    for (const cn of desired) {
+        if (parts.includes(cn))
+            continue;
+        parts.push(cn);
+        changed = true;
+    }
+    if (!changed)
+        return input;
+    const next = parts.join(' ');
+    classAttr.setInitializer(`'${next.replace(/'/g, "\\'")}'`);
+    return sourceFile.getFullText();
+}
+function cssPropNameFromJs(k) {
+    return String(k || '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+        .replace(/_/g, '-')
+        .toLowerCase();
+}
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function upsertCssClassRule(input, className, newStyles) {
+    const cn = String(className || '').trim().replace(/^\./, '');
+    if (!cn)
+        return input;
+    const filtered = normalizeInlineStylePatch(newStyles);
+    if (Object.keys(filtered).length === 0)
+        return input;
+    const selector = `.${cn}`;
+    const re = new RegExp(`(^|\\n)\\s*${escapeRegExp(selector)}\\s*\\{`, 'm');
+    const match = re.exec(input);
+    const desiredDecls = Object.entries(filtered).map(([k, v]) => [cssPropNameFromJs(k), v]);
+    if (!match) {
+        const lines = desiredDecls.map(([k, v]) => `  ${k}: ${v};`).join('\n');
+        const suffix = input.endsWith('\n') ? '' : '\n';
+        return input + `${suffix}\n${selector} {\n${lines}\n}\n`;
+    }
+    const start = match.index + match[0].length;
+    // Find the end of the rule by scanning for the next '}'
+    const end = input.indexOf('}', start);
+    if (end < 0)
+        return input;
+    const body = input.slice(start, end);
+    // Parse existing declarations (naive but ok for MVP)
+    const declMap = new Map();
+    for (const line of body.split(/\r?\n/)) {
+        const m = line.trim().match(/^([a-zA-Z0-9_-]+)\s*:\s*([^;]+);?$/);
+        if (!m)
+            continue;
+        declMap.set(m[1], m[2].trim());
+    }
+    for (const [k, v] of desiredDecls) {
+        declMap.set(k, v);
+    }
+    const nextLines = Array.from(declMap.entries()).map(([k, v]) => `  ${k}: ${v};`).join('\n');
+    const nextBody = `\n${nextLines}\n`;
+    return input.slice(0, start) + nextBody + input.slice(end);
+}
 function deleteJsxElement(input, filePath, lineNumber, columnNumber, ctx) {
     const project = new ts_morph_1.Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
     const sourceFile = project.createSourceFile(filePath, input, { overwrite: true });

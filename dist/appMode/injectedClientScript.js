@@ -348,6 +348,7 @@ exports.injectedClientScript = String.raw `
 					deleteBtn.style.display = 'none';
 				}
 				lastSelRect = { left: ur.left, top: ur.top, width: ur.width, height: ur.height };
+				updateDebugWarningsForRect(ur);
 				return;
 			}
 
@@ -358,6 +359,7 @@ exports.injectedClientScript = String.raw `
 				handleSE.style.display = 'none';
 				deleteBtn.style.display = 'none';
 				lastSelRect = null;
+				if (warnLabel) warnLabel.style.display = 'none';
 				return;
 			}
 			if (!document.contains(selectedEl)) {
@@ -366,6 +368,7 @@ exports.injectedClientScript = String.raw `
 				handleSE.style.display = 'none';
 				deleteBtn.style.display = 'none';
 				lastSelRect = null;
+				if (warnLabel) warnLabel.style.display = 'none';
 				return;
 			}
 			var r = rectToBox(selectedEl, selectedBox);
@@ -380,6 +383,7 @@ exports.injectedClientScript = String.raw `
 				deleteBtn.style.display = 'none';
 			}
 			lastSelRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+			updateDebugWarningsForRect(r);
 		}
 
 		function updateHoverVisuals() {
@@ -407,18 +411,87 @@ exports.injectedClientScript = String.raw `
 			if (rafId) return;
 			var tick = function () {
 				rafId = 0;
-				// Keep overlays synced through scroll/animations.
-				if (mode === 'edit' || selectedEl) {
-					updateHoverVisuals();
-					updateSelectionVisuals();
-					ensureRafLoop();
-				}
+				updateHoverVisuals();
+				updateSelectionVisuals();
+				// Performance: don't run a permanent 60fps loop.
+				// Keep a low-frequency follow loop only when an element is selected in edit mode.
+				try {
+					if (followTimer) {
+						window.clearTimeout(followTimer);
+						followTimer = 0;
+					}
+					if (mode === 'edit' && selectedEl) {
+						followTimer = window.setTimeout(function () { ensureRafLoop(); }, 120);
+					}
+				} catch {}
 			};
 			rafId = window.requestAnimationFrame(tick);
 		}
 
+		var followTimer = 0;
+
 		function postToParent(message) {
 			try { window.parent && window.parent.postMessage({ __liveUiEditor: true, message: message }, '*'); } catch {}
+		}
+
+		function hasHorizontalScroll() {
+			try {
+				var se = document.scrollingElement || document.documentElement;
+				if (!se) return false;
+				return (se.scrollWidth - se.clientWidth) > 1;
+			} catch {
+				return false;
+			}
+		}
+		function hasBottomOverlay() {
+			try {
+				var vw = window.innerWidth || 0;
+				var vh = window.innerHeight || 0;
+				if (!vw || !vh) return false;
+				var y = vh - 2;
+				var xs = [Math.floor(vw * 0.1), Math.floor(vw * 0.5), Math.floor(vw * 0.9)];
+				for (var i = 0; i < xs.length; i++) {
+					var el = document.elementFromPoint(xs[i], y);
+					if (!(el instanceof Element)) continue;
+					if (isEditorUiEl(el)) continue;
+					var cs = window.getComputedStyle(el);
+					var pos = (cs.position || '').toLowerCase();
+					if (pos !== 'fixed' && pos !== 'sticky') continue;
+					var r = el.getBoundingClientRect();
+					if (r.height >= 44 && r.top < (vh - 2) && r.bottom > (vh - 2)) return true;
+				}
+				return false;
+			} catch {
+				return false;
+			}
+		}
+		function updateDebugWarningsForRect(rect) {
+			if (!debugSafe || !warnLabel) return;
+			try {
+				var vw = window.innerWidth || 0;
+				var vh = window.innerHeight || 0;
+				var warnings = [];
+				if (hasHorizontalScroll()) warnings.push('Horizontal scroll');
+				if (hasBottomOverlay()) warnings.push('Bottom overlay');
+				if (rect && vw && vh) {
+					var out = rect.left < 0 || rect.top < 0 || (rect.left + rect.width) > vw || (rect.top + rect.height) > vh;
+					if (out) warnings.push('Outside viewport');
+				}
+				if (!warnings.length) {
+					warnLabel.style.display = 'none';
+					return;
+				}
+				warnLabel.style.display = 'block';
+				warnLabel.textContent = warnings.join(' • ');
+				var left = 8;
+				var top = 8;
+				if (rect && vw) {
+					left = Math.max(8, Math.min((vw - 220), rect.left));
+					top = Math.max(8, (rect.top - 28));
+				}
+				warnLabel.style.left = left + 'px';
+				warnLabel.style.top = top + 'px';
+			} catch {}
 		}
 
 		function sendSelected(el) {
@@ -520,10 +593,92 @@ exports.injectedClientScript = String.raw `
 			previewStyleEl.textContent = '';
 		}
 
+		var debugSafe = false;
+		var debugOverlay = null;
+		var warnLabel = null;
+		function ensureDebugUi() {
+			if (debugOverlay) return;
+			debugOverlay = document.createElement('div');
+			debugOverlay.id = 'live-ui-editor-debug-overlay';
+			debugOverlay.style.position = 'fixed';
+			debugOverlay.style.left = '0';
+			debugOverlay.style.top = '0';
+			debugOverlay.style.right = '0';
+			debugOverlay.style.bottom = '0';
+			debugOverlay.style.pointerEvents = 'none';
+			debugOverlay.style.zIndex = '2147483646';
+			debugOverlay.style.display = 'none';
+			// Safe-area guides (works when the browser exposes env(safe-area-inset-*)).
+			var top = document.createElement('div');
+			top.style.position = 'absolute';
+			top.style.left = '0';
+			top.style.top = '0';
+			top.style.right = '0';
+			top.style.height = 'env(safe-area-inset-top, 0px)';
+			top.style.background = 'rgba(255, 180, 60, 0.25)';
+			var bottom = document.createElement('div');
+			bottom.style.position = 'absolute';
+			bottom.style.left = '0';
+			bottom.style.bottom = '0';
+			bottom.style.right = '0';
+			bottom.style.height = 'env(safe-area-inset-bottom, 0px)';
+			bottom.style.background = 'rgba(255, 180, 60, 0.25)';
+			var left = document.createElement('div');
+			left.style.position = 'absolute';
+			left.style.left = '0';
+			left.style.top = '0';
+			left.style.bottom = '0';
+			left.style.width = 'env(safe-area-inset-left, 0px)';
+			left.style.background = 'rgba(255, 180, 60, 0.18)';
+			var right = document.createElement('div');
+			right.style.position = 'absolute';
+			right.style.right = '0';
+			right.style.top = '0';
+			right.style.bottom = '0';
+			right.style.width = 'env(safe-area-inset-right, 0px)';
+			right.style.background = 'rgba(255, 180, 60, 0.18)';
+			debugOverlay.appendChild(top);
+			debugOverlay.appendChild(bottom);
+			debugOverlay.appendChild(left);
+			debugOverlay.appendChild(right);
+			document.documentElement.appendChild(debugOverlay);
+
+			warnLabel = document.createElement('div');
+			warnLabel.id = 'live-ui-editor-warn-label';
+			warnLabel.style.position = 'fixed';
+			warnLabel.style.padding = '4px 6px';
+			warnLabel.style.borderRadius = '6px';
+			warnLabel.style.background = 'rgba(255, 120, 120, 0.92)';
+			warnLabel.style.color = 'white';
+			warnLabel.style.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+			warnLabel.style.pointerEvents = 'none';
+			warnLabel.style.zIndex = '2147483647';
+			warnLabel.style.display = 'none';
+			document.documentElement.appendChild(warnLabel);
+		}
+		function setDebug(next) {
+			debugSafe = !!(next && next.safe);
+			if (debugSafe) {
+				ensureDebugUi();
+				if (debugOverlay) debugOverlay.style.display = 'block';
+			} else {
+				if (debugOverlay) debugOverlay.style.display = 'none';
+				if (warnLabel) warnLabel.style.display = 'none';
+			}
+			ensureRafLoop();
+		}
+
 		var onMessage = function (ev) {
+			// SECURITY: Only accept control messages from the parent webview.
+			try {
+				if (ev.source !== window.parent) return;
+			} catch {
+				return;
+			}
 			var data = ev.data;
 			if (!data || typeof data !== 'object') return;
 			if (data.type === 'live-ui-editor:setMode') return setMode(data.mode);
+			if (data.type === 'live-ui-editor:setDebug') return setDebug(data);
 			if (data.type === 'live-ui-editor:previewStyle') return applyPreview(data.style || {});
 			if (data.type === 'live-ui-editor:clearPreview') return clearPreview();
 		};
