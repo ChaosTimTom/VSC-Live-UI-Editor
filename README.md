@@ -51,7 +51,13 @@ Click any element in your running app and instantly jump to its source location 
 <td width="50%">
 
 ### 🖱️ Drag & Resize
-Move and resize elements visually. Changes write directly to your JSX/TSX source files.
+Move and resize elements visually.
+
+You can control how layout changes are persisted:
+
+- **Layout: Off** — drag/resize is preview-only (won't be written to code)
+- **Layout: Safe** — drag moves are saved as margin adjustments (responsive-friendly)
+- **Layout: Full** — drag/resize is saved as width/height/transform
 
 </td>
 </tr>
@@ -151,6 +157,11 @@ Notes:
 - If you paste a non-local URL, App Mode will require a safety confirmation.
 - App Mode will refuse to apply edits to files outside your workspace/app root.
 
+If your app also needs a separate backend/API server (for navigation, auth, data, etc.), use the **Start Backend** button in the App Mode HUD.
+
+- It can run a detected script like `dev:api` / `dev:backend` / `server`, or you can enter a custom command.
+- It remembers your choice per app root for one-click starts.
+
 ### 2) Use Edit vs Browse mode
 
 - **Edit mode**: hover highlight, click selects, drag/resize, double-click text.
@@ -207,8 +218,10 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
 | **Select leaf element** | `Alt+Click` |
 | **Move element** | `Drag` selection |
 | **Resize element** | `Drag` corner handle |
+| **Layout mode** | HUD dropdown: **Layout: Off / Safe / Full** |
 | **Edit text** | `Double-click` |
 | **Delete element** | Click `🗑️` button |
+| **Start backend** | Click **Start Backend** |
 | **Apply changes** | Click **Apply to Code** |
 | **Discard changes** | Click **Discard** |
 

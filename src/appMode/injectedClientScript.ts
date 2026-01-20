@@ -93,7 +93,8 @@ export const injectedClientScript = String.raw`
 		var keys = [
 			'position','display','flexDirection','justifyContent','alignItems','gap',
 			'width','height','minWidth','minHeight','maxWidth','maxHeight',
-			'margin','padding',
+			'margin','marginTop','marginRight','marginBottom','marginLeft',
+			'padding','paddingTop','paddingRight','paddingBottom','paddingLeft',
 			'fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','textAlign',
 			'color','backgroundColor',
 			'border','borderRadius','boxShadow',
@@ -544,7 +545,7 @@ export const injectedClientScript = String.raw`
 			if (el.style && el.style.width) style.width = el.style.width;
 			if (el.style && el.style.height) style.height = el.style.height;
 			if (el.style && el.style.transform) style.transform = el.style.transform;
-			postToParent({ command: 'updateStyle', file: ds.fileName, line: ds.lineNumber, column: ds.columnNumber, elementId: elementId, elementContext: elementContext(el), style: style });
+			postToParent({ command: 'updateStyle', file: ds.fileName, line: ds.lineNumber, column: ds.columnNumber, elementId: elementId, elementContext: elementContext(el), computedStyle: safeComputedStyle(el), style: style });
 		}
 
 		function sendUpdateText(el, text) {

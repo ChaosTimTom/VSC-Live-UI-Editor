@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.7
+
+- App Mode: Layout Apply is now a 3-mode control: Off / Safe / Full.
+	- Safe persists drag moves as margin adjustments (avoids freezing responsive width/height/transform).
+	- Full persists drag/resize as width/height/transform (previous behavior).
+- App Mode: added Start Backend button to help launch a separate backend/API server when apps need it for navigation/data.
+	- Remembers your choice per app root for one-click starts.
+
 ## 0.1.6
 
 - Packaging/Performance: bundled the extension with esbuild so the VSIX no longer ships huge `node_modules`.

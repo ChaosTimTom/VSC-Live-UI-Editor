@@ -800,14 +800,28 @@ export default function liveUiEditorBabelPlugin(babel) {
 			};
 
 		const pendingEdits = new Map<string, PendingEdit>();
-		let layoutApplyEnabled = false;
+		let layoutApplyMode: 'off' | 'safe' | 'full' = 'off';
 		let warnedLayoutApplyBlocked = false;
+		let warnedLayoutSafeResizeIgnored = false;
 		let warnedUnmappedSelection = false;
 		let warnedAppModePathBlocked = false;
 		let styleAdapterPref: StyleAdapterPreference = 'auto';
 		let styleDetection = appRoot ? await detectStyleSystems(appRoot) : undefined;
 		let cssTargetUri: vscode.Uri | undefined;
 		const stylePrefKey = appRoot ? `lui.appMode.styleAdapterPref:${appRoot.fsPath}` : undefined;
+				type BackendPref = { kind: 'script'; name: string } | { kind: 'custom'; commandLine: string };
+				const backendPrefKey = appRoot ? `lui.appMode.backendPref:${appRoot.fsPath}` : undefined;
+				let backendPref: BackendPref | undefined;
+				if (backendPrefKey) {
+					const saved = context.workspaceState.get<any>(backendPrefKey);
+					if (saved && typeof saved === 'object') {
+						if (saved.kind === 'script' && typeof saved.name === 'string' && saved.name.trim()) {
+							backendPref = { kind: 'script', name: saved.name.trim() };
+						} else if (saved.kind === 'custom' && typeof saved.commandLine === 'string' && saved.commandLine.trim()) {
+							backendPref = { kind: 'custom', commandLine: saved.commandLine.trim() };
+						}
+					}
+				}
 		const inlineRiskWarnKey = appRoot ? `lui.appMode.inlineRiskWarn:${appRoot.fsPath}` : undefined;
 		let inlineRiskWarnMode: 'ask' | 'auto' | 'inline' | 'off' = 'ask';
 		if (inlineRiskWarnKey) {
@@ -876,6 +890,42 @@ export default function liveUiEditorBabelPlugin(babel) {
 		function classNameFromElementId(elementId: string): string {
 			const h = hashFnv1a32(elementId).toString(16).padStart(8, '0');
 			return `lui-${h}`;
+		}
+
+		function parseTranslatePxFromTransform(transform: string | undefined): { base: string; x: number; y: number; hasTranslate: boolean } {
+			if (!transform) return { base: '', x: 0, y: 0, hasTranslate: false };
+			const raw = String(transform);
+			const m = raw.match(/translate\(\s*([-\d.]+)px\s*,\s*([-\d.]+)px\s*\)/);
+			if (!m) return { base: raw, x: 0, y: 0, hasTranslate: false };
+			const x = Number.parseFloat(m[1] ?? '0') || 0;
+			const y = Number.parseFloat(m[2] ?? '0') || 0;
+			const base = raw.replace(m[0], '').trim();
+			return { base, x, y, hasTranslate: true };
+		}
+
+		function parsePx(input: string | undefined): number | undefined {
+			if (!input) return undefined;
+			const v = String(input).trim();
+			if (!v) return undefined;
+			if (v === 'auto') return undefined;
+			const m = v.match(/^([-\d.]+)px$/);
+			if (!m) return undefined;
+			const n = Number.parseFloat(m[1] ?? '');
+			return Number.isFinite(n) ? n : undefined;
+		}
+
+		function parseMarginShorthand(margin: string | undefined): { top?: number; right?: number; bottom?: number; left?: number } {
+			if (!margin) return {};
+			const parts = String(margin).trim().split(/\s+/).filter(Boolean);
+			if (parts.length === 0) return {};
+			const a = parsePx(parts[0]);
+			const b = parts.length > 1 ? parsePx(parts[1]) : undefined;
+			const c = parts.length > 2 ? parsePx(parts[2]) : undefined;
+			const d = parts.length > 3 ? parsePx(parts[3]) : undefined;
+			if (parts.length === 1) return { top: a, right: a, bottom: a, left: a };
+			if (parts.length === 2) return { top: a, right: b, bottom: a, left: b };
+			if (parts.length === 3) return { top: a, right: b, bottom: c, left: b };
+			return { top: a, right: b, bottom: c, left: d };
 		}
 
 		async function exists(uri: vscode.Uri): Promise<boolean> {
@@ -1246,6 +1296,121 @@ export default function liveUiEditorBabelPlugin(babel) {
 					await setCssTargetUri(u);
 					return;
 				}
+				if (message.command === 'startBackend') {
+					if (!appRoot) {
+						vscode.window.showErrorMessage('Live UI Editor (App Mode): No app root detected to start a backend server.');
+						return;
+					}
+
+					const pm = pkgManager;
+					const scriptToCmd = (scriptName: string): string => {
+						if (pm === 'pnpm') return `pnpm ${scriptName}`;
+						if (pm === 'yarn') return `yarn ${scriptName}`;
+						return `npm run ${scriptName}`;
+					};
+					const runBackendCommand = (commandLine: string): void => {
+						const termName = 'Live UI App Mode: Backend';
+						let term = vscode.window.terminals.find(t => t.name === termName);
+						if (!term) term = vscode.window.createTerminal({ name: termName, cwd: appRoot.fsPath });
+						term.show(true);
+						term.sendText(commandLine, true);
+					};
+
+					// One-click behavior: if we already know how to start the backend, just run it.
+					if (backendPref) {
+						const cmd = backendPref.kind === 'script' ? scriptToCmd(backendPref.name) : backendPref.commandLine;
+						runBackendCommand(cmd);
+						const pick = await vscode.window.showInformationMessage(
+							'Live UI Editor (App Mode): Started backend server.',
+							'Change…',
+							'Clear saved'
+						);
+						if (pick === 'Clear saved') {
+							backendPref = undefined;
+							if (backendPrefKey) void context.workspaceState.update(backendPrefKey, undefined);
+							return;
+						}
+						if (pick !== 'Change…') return;
+						// Fall through to picker to change.
+					}
+
+					const pkgJsonUri = vscode.Uri.joinPath(appRoot, 'package.json');
+					let pkg: any;
+					try {
+						pkg = JSON.parse(await readUtf8(pkgJsonUri));
+					} catch {
+						vscode.window.showErrorMessage('Live UI Editor (App Mode): Could not read package.json to detect backend scripts.');
+						return;
+					}
+
+					const scripts: Record<string, string> = (pkg && typeof pkg === 'object' && pkg.scripts && typeof pkg.scripts === 'object')
+						? pkg.scripts
+						: {};
+
+					const preferred = [
+						'dev:backend', 'dev:api', 'dev:server',
+						'backend', 'api', 'server',
+						'start:backend', 'start:api', 'start:server',
+						'dev:all', 'dev:fullstack',
+					];
+					const preferredFound = preferred.filter(k => typeof scripts[k] === 'string' && scripts[k].trim().length > 0);
+					const allScriptNames = Object.keys(scripts).sort((a, b) => a.localeCompare(b));
+
+					type Choice =
+						| { kind: 'script'; name: string }
+						| { kind: 'allScripts' }
+						| { kind: 'custom' };
+
+					const items: Array<{ label: string; description?: string; choice: Choice }> = [];
+					for (const name of preferredFound) {
+						items.push({ label: `Run script: ${name}`, description: scripts[name]?.trim() || '', choice: { kind: 'script', name } });
+					}
+					items.push({ label: 'Pick from all scripts…', choice: { kind: 'allScripts' } });
+					items.push({ label: 'Enter custom command…', choice: { kind: 'custom' } });
+
+					const picked = await vscode.window.showQuickPick(items, {
+						title: 'Live UI Editor (App Mode): Start backend/API server',
+						placeHolder: preferredFound.length ? 'Select a detected backend script' : 'Select how to start your backend server',
+					});
+					if (!picked) return;
+
+					let commandLine: string | undefined;
+					let nextPref: BackendPref | undefined;
+					if (picked.choice.kind === 'script') {
+						commandLine = scriptToCmd(picked.choice.name);
+						nextPref = { kind: 'script', name: picked.choice.name };
+					} else if (picked.choice.kind === 'allScripts') {
+						if (!allScriptNames.length) {
+							vscode.window.showErrorMessage('Live UI Editor (App Mode): No npm scripts found in package.json.');
+							return;
+						}
+						const chosen = await vscode.window.showQuickPick(
+							allScriptNames.map(name => ({ label: name, description: scripts[name]?.trim() || '' })),
+							{ title: 'Pick a script to run' }
+						);
+						if (!chosen) return;
+						commandLine = scriptToCmd(chosen.label);
+						nextPref = { kind: 'script', name: chosen.label };
+					} else if (picked.choice.kind === 'custom') {
+						const custom = await vscode.window.showInputBox({
+							title: 'Backend command',
+							prompt: 'Enter a command to start your backend/API server',
+							ignoreFocusOut: true,
+						});
+						if (!custom) return;
+						commandLine = custom;
+						nextPref = { kind: 'custom', commandLine: custom };
+					}
+
+					if (!commandLine) return;
+					if (backendPrefKey && nextPref) {
+						backendPref = nextPref;
+						void context.workspaceState.update(backendPrefKey, nextPref);
+					}
+					runBackendCommand(commandLine);
+					vscode.window.showInformationMessage('Live UI Editor (App Mode): Started backend server in the integrated terminal.');
+					return;
+				}
 				if (message.command === 'fixTargeting') {
 					// Alias for enableStableIds, but also guides the user to reselect after reload.
 					try {
@@ -1308,8 +1473,13 @@ export default function liveUiEditorBabelPlugin(babel) {
 					return;
 				}
 				if (message.command === 'setLayoutApply') {
-					layoutApplyEnabled = message.enabled;
-					output.appendLine(`[appMode] layoutApplyEnabled=${layoutApplyEnabled}`);
+					layoutApplyMode = message.enabled ? 'full' : 'off';
+					output.appendLine(`[appMode] layoutApplyMode=${layoutApplyMode} (legacy setLayoutApply)`);
+					return;
+				}
+				if (message.command === 'setLayoutApplyMode') {
+					layoutApplyMode = message.mode;
+					output.appendLine(`[appMode] layoutApplyMode=${layoutApplyMode}`);
 					return;
 				}
 				if (message.command === 'setTauriShim') {
@@ -1546,8 +1716,8 @@ export default function liveUiEditorBabelPlugin(babel) {
 				}
 				if (message.command === 'updateStyle') {
 					// Guardrail: by default, don't persist layout changes from drag/resize.
-					const nextStyle = { ...message.style };
-					if (!layoutApplyEnabled) {
+					const nextStyle: Record<string, string> = { ...(message.style as any) };
+					if (layoutApplyMode === 'off') {
 						delete (nextStyle as any).width;
 						delete (nextStyle as any).height;
 						delete (nextStyle as any).transform;
@@ -1555,9 +1725,43 @@ export default function liveUiEditorBabelPlugin(babel) {
 							if (!warnedLayoutApplyBlocked) {
 								warnedLayoutApplyBlocked = true;
 								vscode.window.showWarningMessage(
-									'Live UI Editor (App Mode): Layout Apply is OFF, so drag/resize changes are not saved to code. Enable “Layout Apply” to persist width/height/transform.'
+									'Live UI Editor (App Mode): Layout is Off, so drag/resize changes are not saved to code. Switch Layout to “Safe” (margins) or “Full” (width/height/transform).'
 								);
 							}
+							return;
+						}
+					}
+
+					if (layoutApplyMode === 'safe') {
+						const hadResize = typeof (nextStyle as any).width === 'string' || typeof (nextStyle as any).height === 'string';
+						delete (nextStyle as any).width;
+						delete (nextStyle as any).height;
+						if (hadResize && !warnedLayoutSafeResizeIgnored) {
+							warnedLayoutSafeResizeIgnored = true;
+							vscode.window.showInformationMessage('Live UI Editor (App Mode): Layout “Safe” ignores resize (width/height). Use Layout “Full” to persist resize changes.');
+						}
+
+						const rawTransform = (nextStyle as any).transform;
+						delete (nextStyle as any).transform;
+						const parsed = parseTranslatePxFromTransform(typeof rawTransform === 'string' ? rawTransform : undefined);
+						if (parsed.hasTranslate) {
+							const cs = message.computedStyle || {};
+							const shorthand = parseMarginShorthand(cs.margin);
+							const ml0 = parsePx(cs.marginLeft) ?? shorthand.left ?? 0;
+							const mt0 = parsePx(cs.marginTop) ?? shorthand.top ?? 0;
+							const ml = Math.round(ml0 + parsed.x);
+							const mt = Math.round(mt0 + parsed.y);
+							nextStyle.marginLeft = `${ml}px`;
+							nextStyle.marginTop = `${mt}px`;
+						}
+
+						const base = (parsed.base || '').trim();
+						if (base && base.toLowerCase() !== 'none') {
+							nextStyle.transform = base;
+						}
+
+						if (Object.keys(nextStyle).length === 0) {
+							// Nothing safe to persist.
 							return;
 						}
 					}

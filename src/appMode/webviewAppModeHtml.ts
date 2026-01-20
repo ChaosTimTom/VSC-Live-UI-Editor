@@ -120,14 +120,18 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 		</label>
 		<button id="pickCssTarget" title="Choose which CSS file to write class-based styles into.">Pick CSS</button>
 		<span id="cssTarget" title="Current CSS target file"></span>
+		<button id="startBackend" title="Start an additional backend/API server (if your app needs one for navigation/data).">Start Backend</button>
 		<button id="enableStableIds" title="Automatically enables Stable IDs for Vite or Next.js so the editor can always target the correct element.">Enable Stable IDs</button>
 			<label id="tauriShimWrap" title="Runs a small in-browser Tauri shim so Tauri-targeted apps can load inside App Mode. This is a stub for navigation only; native features won’t fully work.">
 				<input id="tauriShim" type="checkbox" />
 				Tauri Shim
 			</label>
-		<label id="layoutWrap" title="When enabled, drag/resize will be written to code as width/height/transform. Leave off for safer styling-only edits.">
-			<input id="layoutApply" type="checkbox" />
-			Layout Apply
+		<label id="layoutWrap" title="Controls how drag/resize is written to code. Off: don't persist. Safe: drag saves as margins (no width/height/transform). Full: saves width/height/transform.">
+			<select id="layoutApplyMode">
+				<option value="off">Layout: Off</option>
+				<option value="safe">Layout: Safe</option>
+				<option value="full">Layout: Full</option>
+			</select>
 		</label>
 		<div style="flex:1"></div>
 	</div>
@@ -159,13 +163,14 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 		const debugSafeEl = document.getElementById('debugSafe');
 		const pickCssTargetBtn = document.getElementById('pickCssTarget');
 		const cssTargetEl = document.getElementById('cssTarget');
+		const startBackendBtn = document.getElementById('startBackend');
 		const tauriShim = document.getElementById('tauriShim');
-		const layoutApply = document.getElementById('layoutApply');
+		const layoutApplyModeEl = document.getElementById('layoutApplyMode');
 		const applyReport = document.getElementById('applyReport');
 
 		let mode = 'edit'; // 'browse' | 'edit'
 		let pendingCount = 0;
-		let layoutApplyEnabled = false;
+		let layoutApplyMode = 'off'; // 'off' | 'safe' | 'full'
 		let identityKind = 'unknown'; // 'unknown' | 'stable' | 'fallback' | 'unmapped'
 		let enablingStableIds = false;
 		let tauriShimEnabled = ${opts.tauriShimEnabled ? 'true' : 'false'};
@@ -184,17 +189,18 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 			const state = vscode.getState() || {};
 			if (state && (state.mode === 'browse' || state.mode === 'edit')) mode = state.mode;
 			if (typeof state.tauriShimEnabled === 'boolean') tauriShimEnabled = state.tauriShimEnabled;
-			if (typeof state.layoutApplyEnabled === 'boolean') layoutApplyEnabled = state.layoutApplyEnabled;
+			if (state && (state.layoutApplyMode === 'off' || state.layoutApplyMode === 'safe' || state.layoutApplyMode === 'full')) layoutApplyMode = state.layoutApplyMode;
+			else if (typeof state.layoutApplyEnabled === 'boolean') layoutApplyMode = state.layoutApplyEnabled ? 'full' : 'off';
 				if (state && (state.styleAdapterPref === 'auto' || state.styleAdapterPref === 'tailwind' || state.styleAdapterPref === 'cssClass' || state.styleAdapterPref === 'inline')) styleAdapterPref = state.styleAdapterPref;
 			if (state && typeof state.viewportPreset === 'string') viewportPreset = state.viewportPreset;
 			if (typeof state.debugSafe === 'boolean') debugSafe = state.debugSafe;
 		} catch {}
 		tauriShim.checked = tauriShimEnabled;
-		layoutApply.checked = layoutApplyEnabled;
+		layoutApplyModeEl.value = layoutApplyMode;
 			styleAdapterEl.value = styleAdapterPref;
 		viewportPresetEl.value = viewportPreset;
 		debugSafeEl.checked = debugSafe;
-			vscode.setState({ ...(vscode.getState() || {}), mode, tauriShimEnabled, layoutApplyEnabled, styleAdapterPref, viewportPreset, debugSafe });
+			vscode.setState({ ...(vscode.getState() || {}), mode, tauriShimEnabled, layoutApplyMode, styleAdapterPref, viewportPreset, debugSafe });
 
 		function applyViewportPreset() {
 			const presets = {
@@ -331,10 +337,15 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 			vscode.postMessage({ command: 'pickCssTarget' });
 		});
 
-		layoutApply.addEventListener('change', () => {
-			layoutApplyEnabled = !!layoutApply.checked;
-			try { vscode.setState({ ...(vscode.getState() || {}), layoutApplyEnabled }); } catch {}
-			vscode.postMessage({ command: 'setLayoutApply', enabled: layoutApplyEnabled });
+		startBackendBtn.addEventListener('click', () => {
+			vscode.postMessage({ command: 'startBackend' });
+		});
+
+		layoutApplyModeEl.addEventListener('change', () => {
+			layoutApplyMode = String(layoutApplyModeEl.value || 'off');
+			if (layoutApplyMode !== 'off' && layoutApplyMode !== 'safe' && layoutApplyMode !== 'full') layoutApplyMode = 'off';
+			try { vscode.setState({ ...(vscode.getState() || {}), layoutApplyMode }); } catch {}
+			vscode.postMessage({ command: 'setLayoutApplyMode', mode: layoutApplyMode });
 			render();
 		});
 

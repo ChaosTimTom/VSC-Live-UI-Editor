@@ -87,10 +87,21 @@ export type UpdateStyleMessage = {
 		type?: string;
 		text?: string;
 	};
+	computedStyle?: Record<string, string>;
 	style: {
 		width?: string;
 		height?: string;
 		transform?: string;
+		margin?: string;
+		marginTop?: string;
+		marginRight?: string;
+		marginBottom?: string;
+		marginLeft?: string;
+		padding?: string;
+		paddingTop?: string;
+		paddingRight?: string;
+		paddingBottom?: string;
+		paddingLeft?: string;
 	};
 };
 
@@ -126,6 +137,11 @@ export type SetLayoutApplyMessage = {
 	enabled: boolean;
 };
 
+export type SetLayoutApplyModeMessage = {
+	command: 'setLayoutApplyMode';
+	mode: 'off' | 'safe' | 'full';
+};
+
 export type SetTauriShimMessage = {
 	command: 'setTauriShim';
 	enabled: boolean;
@@ -153,6 +169,10 @@ export type PickCssTargetMessage = {
 	command: 'pickCssTarget';
 };
 
+export type StartBackendMessage = {
+	command: 'startBackend';
+};
+
 export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
@@ -164,12 +184,14 @@ export type FromWebviewMessage =
 	| ApplyPendingEditsMessage
 	| DiscardPendingEditsMessage
 	| SetLayoutApplyMessage
+	| SetLayoutApplyModeMessage
 	| SetTauriShimMessage
 	| EnableStableIdsMessage
 	| FixTargetingMessage
 	| SetStyleApplyModeMessage
 	| SetStyleAdapterMessage
-	| PickCssTargetMessage;
+	| PickCssTargetMessage
+	| StartBackendMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
@@ -243,6 +265,14 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		if (!colOk) return false;
 		const idOk = v.elementId === undefined || typeof v.elementId === 'string';
 		if (!idOk) return false;
+		if (v.computedStyle !== undefined) {
+			if (!v.computedStyle || typeof v.computedStyle !== 'object') return false;
+			const cs = v.computedStyle as Record<string, unknown>;
+			for (const [k, val] of Object.entries(cs)) {
+				if (typeof k !== 'string') return false;
+				if (typeof val !== 'string') return false;
+			}
+		}
 		if (v.elementContext !== undefined) {
 			if (!v.elementContext || typeof v.elementContext !== 'object') return false;
 			const c = v.elementContext as Record<string, unknown>;
@@ -260,7 +290,17 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		const widthOk = style.width === undefined || typeof style.width === 'string';
 		const heightOk = style.height === undefined || typeof style.height === 'string';
 		const transformOk = style.transform === undefined || typeof style.transform === 'string';
-		return widthOk && heightOk && transformOk;
+		const marginOk = style.margin === undefined || typeof style.margin === 'string';
+		const marginTopOk = style.marginTop === undefined || typeof style.marginTop === 'string';
+		const marginRightOk = style.marginRight === undefined || typeof style.marginRight === 'string';
+		const marginBottomOk = style.marginBottom === undefined || typeof style.marginBottom === 'string';
+		const marginLeftOk = style.marginLeft === undefined || typeof style.marginLeft === 'string';
+		const paddingOk = style.padding === undefined || typeof style.padding === 'string';
+		const paddingTopOk = style.paddingTop === undefined || typeof style.paddingTop === 'string';
+		const paddingRightOk = style.paddingRight === undefined || typeof style.paddingRight === 'string';
+		const paddingBottomOk = style.paddingBottom === undefined || typeof style.paddingBottom === 'string';
+		const paddingLeftOk = style.paddingLeft === undefined || typeof style.paddingLeft === 'string';
+		return widthOk && heightOk && transformOk && marginOk && marginTopOk && marginRightOk && marginBottomOk && marginLeftOk && paddingOk && paddingTopOk && paddingRightOk && paddingBottomOk && paddingLeftOk;
 	}
 	if (v.command === 'updateText') {
 		if (!(typeof v.file === 'string' && typeof v.line === 'number' && typeof v.text === 'string')) return false;
@@ -301,11 +341,17 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 	if (v.command === 'pickCssTarget') {
 		return true;
 	}
+	if (v.command === 'startBackend') {
+		return true;
+	}
 	if (v.command === 'discardPendingEdits') {
 		return true;
 	}
 	if (v.command === 'setLayoutApply') {
 		return typeof v.enabled === 'boolean';
+	}
+	if (v.command === 'setLayoutApplyMode') {
+		return v.mode === 'off' || v.mode === 'safe' || v.mode === 'full';
 	}
 	if (v.command === 'enableStableIds') {
 		return true;
