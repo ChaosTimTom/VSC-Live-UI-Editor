@@ -6,7 +6,6 @@ webview-ui/tsconfig.json
 webview-ui/vite.config.ts
 webview-ui/package-lock.json
 webview-ui/package.json
-node_modules/**
 .vscode/**
 tools/**
 

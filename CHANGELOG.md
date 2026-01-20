@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.5
+
+- Packaging: fixed VSIX to include runtime dependencies so commands activate correctly after Marketplace install.
+
 ## 0.1.3
 
 - App Mode security: only accepts messages from the expected iframe origin/source.

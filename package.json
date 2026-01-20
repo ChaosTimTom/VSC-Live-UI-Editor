@@ -2,7 +2,7 @@
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
   "description": "Visually edit React/Vite/Next.js UIs directly in VS Code — with safe source updates and universal style targets (Auto/Tailwind/CSS/Inline).",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "preview": true,
