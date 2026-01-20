@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.6
+
+- Packaging/Performance: bundled the extension with esbuild so the VSIX no longer ships huge `node_modules`.
+- App Mode: toolbar is now a floating HUD overlay with transparent background so the app stays visible.
+
 ## 0.1.5
 
 - Packaging: fixed VSIX to include runtime dependencies so commands activate correctly after Marketplace install.

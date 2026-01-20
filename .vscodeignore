@@ -6,14 +6,19 @@ webview-ui/tsconfig.json
 webview-ui/vite.config.ts
 webview-ui/package-lock.json
 webview-ui/package.json
+node_modules/**
 .vscode/**
 tools/**
 
 # Dev-only / source-only
 src/**
 tsconfig.json
+esbuild.extension.mjs
 .gitignore
 package-lock.json
+
+# Keep the VSIX lean (stack traces still show line/column)
+dist/**/*.map
 
 # Repo-only artifacts (keep out of VSIX)
 last convo.md

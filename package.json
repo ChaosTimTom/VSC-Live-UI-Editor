@@ -2,7 +2,7 @@
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
   "description": "Visually edit React/Vite/Next.js UIs directly in VS Code — with safe source updates and universal style targets (Auto/Tailwind/CSS/Inline).",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "preview": true,
@@ -41,7 +41,7 @@
   ],
   "activationEvents": [
     "onCommand:liveUI.open",
-	"onCommand:liveUI.openAppMode",
+    "onCommand:liveUI.openAppMode",
     "onChatParticipant:live-ui.ui-wizard"
   ],
   "main": "./dist/extension.js",
@@ -50,10 +50,10 @@
       {
         "command": "liveUI.open",
         "title": "Live UI: Open"
-	  },
-	  {
-		"command": "liveUI.openAppMode",
-		"title": "Live UI: Open (App Mode)"
+      },
+      {
+        "command": "liveUI.openAppMode",
+        "title": "Live UI: Open (App Mode)"
       }
     ],
     "chatParticipants": [
@@ -67,24 +67,28 @@
     ]
   },
   "scripts": {
+    "clean": "npx --yes rimraf dist",
+    "typecheck": "tsc -p . --noEmit",
     "build:webview": "npm --prefix webview-ui run build",
-    "build:extension": "tsc -p .",
-    "build": "npm run build:webview && npm run build:extension",
-    "watch:extension": "tsc -w -p .",
+    "build:extension": "npm run clean && node ./esbuild.extension.mjs",
+    "build": "npm run build:webview && npm run typecheck && npm run build:extension",
+    "watch:extension": "npm run typecheck && node ./esbuild.extension.mjs --watch",
     "package:webview": "npm --prefix webview-ui run build",
     "package:vsix": "npx --yes @vscode/vsce package",
     "publish:vsce": "npx --yes @vscode/vsce publish"
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
-	"parse5": "^7.2.1",
-	"http-proxy": "^1.18.1",
+    "http-proxy": "^1.18.1",
+    "parse5": "^7.2.1",
     "ts-morph": "^23.0.0"
   },
   "devDependencies": {
+    "@types/http-proxy": "^1.17.16",
     "@types/node": "^20.11.30",
-	"@types/http-proxy": "^1.17.16",
     "@types/vscode": "^1.85.0",
+    "esbuild": "^0.27.2",
+    "rimraf": "^6.1.2",
     "typescript": "^5.4.5"
   }
 }

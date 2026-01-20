@@ -34,12 +34,23 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 	<title>Live UI Editor — App Mode</title>
 	<style>
 		:root { color-scheme: light dark; }
-		body { margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; height: 100vh; display: flex; flex-direction: column; }
-		#bar { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-bottom: 1px solid rgba(127,127,127,0.3); }
+		html, body { height: 100%; }
+		body { margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; overflow: hidden; background: transparent; }
+
+		/* App fills the viewport; UI floats over it. */
+		#frameWrap { position: fixed; inset: 0; background: transparent; }
+		#frameInner { width: 100%; height: 100%; }
+		iframe { width: 100%; height: 100%; border: 0; background: transparent; }
+		iframe.preset { border: 1px solid rgba(127,127,127,0.25); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); margin: 12px; background: white; }
+
+		/* Floating HUD: transparent container, opaque controls. */
+		#hud { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 2147483646; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; pointer-events: none; }
+		#hud button, #hud select, #hud input, #hud label { pointer-events: auto; }
+		#hudText { display: inline-flex; align-items: center; gap: 10px; pointer-events: none; }
 		#title { font-weight: 600; }
 		#mode { font-size: 12px; opacity: 0.85; }
-		button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: transparent; cursor: pointer; }
-		button:hover { background: rgba(127,127,127,0.10); }
+		button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(127,127,127,0.35); background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, inherit); cursor: pointer; }
+		button:hover { filter: brightness(1.07); }
 		button:disabled { opacity: 0.55; cursor: default; }
 		#pendingBadge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(127,127,127,0.35); opacity: 0.9; }
 		#pendingBadge[data-zero="true"] { opacity: 0.55; }
@@ -52,32 +63,36 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 		#identityBadge[data-kind="fallback"] { border-color: rgba(255, 180, 60, 0.75); }
 		#identityBadge[data-kind="unmapped"] { border-color: rgba(255, 120, 120, 0.85); }
 		#enableStableIds { border-color: rgba(80, 180, 120, 0.75); }
-		#styleAdapter { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: transparent; }
+		#styleAdapter { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid rgba(127,127,127,0.35); background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, inherit); }
 		#styleAdapterHint { font-size: 12px; opacity: 0.85; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		#pickCssTarget { border-color: rgba(80, 140, 255, 0.35); }
 		#cssTarget { font-size: 12px; opacity: 0.8; }
-		#viewportPreset { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: transparent; }
+		#viewportPreset { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid rgba(127,127,127,0.35); background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, inherit); }
 		#debugWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
 		#debugWrap input { transform: translateY(1px); }
 		#tauriShimWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
 		#tauriShimWrap input { transform: translateY(1px); }
 		#layoutWrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
 		#layoutWrap input { transform: translateY(1px); }
-		#help { font-size: 12px; opacity: 0.8; }
-		#applyReport { font-size: 12px; opacity: 0.9; padding: 6px 10px; border-top: 1px solid rgba(127,127,127,0.25); display: none; white-space: pre-wrap; }
+		#help { position: fixed; left: 10px; bottom: 10px; z-index: 2147483646; font-size: 12px; opacity: 0.78; max-width: min(760px, calc(100vw - 20px)); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		#applyReport { position: fixed; left: 10px; right: 10px; top: 54px; z-index: 2147483646; font-size: 12px; opacity: 0.95; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(127,127,127,0.25); background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, inherit); display: none; white-space: pre-wrap; pointer-events: none; }
 		#applyReport[data-kind="ok"] { color: rgba(80, 180, 120, 0.95); }
 		#applyReport[data-kind="warn"] { color: rgba(255, 180, 60, 0.95); }
 		#applyReport[data-kind="err"] { color: rgba(255, 120, 120, 0.95); }
-		#frameWrap { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: stretch; background: rgba(127,127,127,0.05); }
-		#frameInner { flex: 1; min-width: 0; min-height: 0; display: flex; justify-content: center; align-items: stretch; }
-		iframe { width: 100%; height: 100%; border: 0; background: white; }
-		iframe.preset { border: 1px solid rgba(127,127,127,0.25); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); margin: 12px; }
 	</style>
 </head>
 <body>
-	<div id="bar">
-		<div id="title">Live UI Editor — App Mode</div>
-		<div id="mode"></div>
+	<div id="frameWrap">
+		<div id="frameInner">
+			<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}" allow="clipboard-read; clipboard-write"></iframe>
+		</div>
+	</div>
+
+	<div id="hud">
+		<div id="hudText">
+			<div id="title">Live UI Editor</div>
+			<div id="mode"></div>
+		</div>
 		<button id="toggle"></button>
 		<span id="pendingBadge" data-zero="true">Pending: 0</span>
 		<button id="apply" disabled>Apply to Code</button>
@@ -115,14 +130,9 @@ export function getAppModeWebviewHtml(webview: vscode.Webview, opts: {
 			Layout Apply
 		</label>
 		<div style="flex:1"></div>
-		<div id="help"></div>
 	</div>
 	<div id="applyReport" data-kind="ok"></div>
-	<div id="frameWrap">
-		<div id="frameInner">
-			<iframe id="app" src="${opts.iframeUrl}" title="${opts.appLabel}" allow="clipboard-read; clipboard-write"></iframe>
-		</div>
-	</div>
+	<div id="help"></div>
 
 	<script nonce="${nonce}">
 		const iframeOrigin = ${JSON.stringify(iframeOrigin)};
