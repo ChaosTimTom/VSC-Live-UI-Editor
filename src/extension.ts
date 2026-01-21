@@ -1266,6 +1266,17 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 			created.webview.onDidReceiveMessage(async (message: unknown) => {
 				if (!isFromWebviewMessage(message)) return;
+				if (message.command === 'openHelp') {
+					try {
+						const helpUri = vscode.Uri.joinPath(context.extensionUri, 'HELP.md');
+						const doc = await vscode.workspace.openTextDocument(helpUri);
+						await vscode.window.showTextDocument(doc, { preview: false });
+					} catch (err) {
+						output.appendLine(`[appMode:help:error] ${String(err)}`);
+						vscode.window.showErrorMessage('Live UI Editor (App Mode): Failed to open Help. See Output → Live UI Editor.');
+					}
+					return;
+				}
 				if (message.command === 'setStyleAdapter') {
 					styleAdapterPref = message.adapter;
 					if (stylePrefKey) void context.workspaceState.update(stylePrefKey, styleAdapterPref);

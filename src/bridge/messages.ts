@@ -173,6 +173,10 @@ export type StartBackendMessage = {
 	command: 'startBackend';
 };
 
+export type OpenHelpMessage = {
+	command: 'openHelp';
+};
+
 export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
@@ -191,11 +195,15 @@ export type FromWebviewMessage =
 	| SetStyleApplyModeMessage
 	| SetStyleAdapterMessage
 	| PickCssTargetMessage
-	| StartBackendMessage;
+	| StartBackendMessage
+	| OpenHelpMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
 	const v = value as Record<string, unknown>;
+	if (v.command === 'openHelp') {
+		return true;
+	}
 	if (v.command === 'elementClicked') {
 		const colOk = v.column === undefined || typeof v.column === 'number';
 		const idOk = v.elementId === undefined || typeof v.elementId === 'string';

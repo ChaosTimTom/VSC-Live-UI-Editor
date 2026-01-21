@@ -347,6 +347,10 @@ export default function AppModeShell() {
     vscode.postMessage({ command: 'setTauriShim', enabled: next });
   };
 
+  const onOpenHelp = () => {
+    vscode.postMessage({ command: 'openHelp' });
+  };
+
   const showCss = styleAdapterEffective === 'cssClass' || styleAdapterPref === 'cssClass' || (styleAdapterPref === 'auto' && styleAdapterEffective === '');
 
   return (
@@ -355,6 +359,9 @@ export default function AppModeShell() {
         <div className="lui-top">
           <button className="lui-iconBtn" onClick={() => setSidebarCollapsed(v => !v)} title="Toggle sidebar (Ctrl/Cmd+B)">
             {sidebarCollapsed ? '»' : '«'}
+          </button>
+          <button className="lui-iconBtn" onClick={onOpenHelp} title="Help (getting started + troubleshooting)">
+            ?
           </button>
           {!sidebarCollapsed && (
             <div className="lui-titleWrap">
