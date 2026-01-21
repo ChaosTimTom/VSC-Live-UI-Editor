@@ -7,6 +7,12 @@ All notable changes to this project will be documented in this file.
 - App Mode: rebuilt controls as a collapsible sidebar (no more top overlay covering the app).
 - App Mode: now loads a dedicated Vite/React webview page (`appMode.html`).
 
+## 0.2.1
+
+- App Mode: collapsible sidebar UI overhaul (React/Vite app-mode page).
+- App Mode: fixed CSP so the webview can load ESM module imports (prevents blank screen).
+- App Mode: added Help button that opens built-in getting-started + troubleshooting doc.
+
 ## 0.1.8
 
 - Docs/Community: added Discord link + badge and pointed users to Discord for help, ideas/feedback, and sharing wins.
