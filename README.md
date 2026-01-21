@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://discord.gg/QHnHhCjWDQ"><strong>Join the Discord</strong></a>
+  <br>
+  <sub>Get help, share wins, and drop ideas/feedback.</sub>
+</p>
+
+<p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor">
     <img src="https://img.shields.io/visual-studio-marketplace/v/TheImmersiveSaga.vscode-live-ui-editor?style=for-the-badge&logo=visual-studio-code&logoColor=white&label=VS%20Code&color=007ACC" alt="VS Code Marketplace Version">
   </a>
@@ -17,6 +23,9 @@
   </a>
   <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor">
     <img src="https://img.shields.io/visual-studio-marketplace/r/TheImmersiveSaga.vscode-live-ui-editor?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=ff9800" alt="Rating">
+  </a>
+  <a href="https://discord.gg/QHnHhCjWDQ">
+    <img src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord">
   </a>
   <a href="https://github.com/ChaosTimTom/VSC-Live-UI-Editor/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/ChaosTimTom/VSC-Live-UI-Editor?style=for-the-badge&color=blue" alt="License">
@@ -28,7 +37,8 @@
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-how-it-works">How It Works</a> •
   <a href="#-documentation">Docs</a> •
-  <a href="#-contributing">Contributing</a>
+  <a href="#-contributing">Contributing</a> •
+  <a href="#-links">Links</a>
 </p>
 
 ---
@@ -133,6 +143,9 @@ code --install-extension TheImmersiveSaga.vscode-live-ui-editor
 3. **Start editing** — click, drag, resize, or double-click text
 
 That's it! Your changes are staged and ready to apply.
+
+Need help, want to share wins, or have ideas/feedback?
+Join the Discord: https://discord.gg/QHnHhCjWDQ
 
 ---
 
@@ -317,6 +330,8 @@ The extension auto-detects `{t('translation.key')}` patterns:
 
 ## 🐛 Troubleshooting
 
+For fastest help (and to share ideas/wins): https://discord.gg/QHnHhCjWDQ
+
 <details>
 <summary><strong>Buttons not responding in App Mode</strong></summary>
 
@@ -400,6 +415,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## 🔗 Links
 
 - **Marketplace**: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor)
+- **Discord**: https://discord.gg/QHnHhCjWDQ
 - **Repository**: [GitHub](https://github.com/ChaosTimTom/VSC-Live-UI-Editor)
 - **Issues**: [Report a bug](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/issues)
 - **Discussions**: [Ask questions](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/discussions)
