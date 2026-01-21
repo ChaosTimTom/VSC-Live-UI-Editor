@@ -39,7 +39,8 @@ function injectCsp(html: string, webview: vscode.Webview, nonce: string): string
 		`img-src ${webview.cspSource} https: data:`,
 		// react-moveable injects runtime <style> tags; allow inline styles in the webview.
 		`style-src ${webview.cspSource} 'unsafe-inline'`,
-		`script-src 'nonce-${nonce}'`
+		// Vite builds use ESM imports; allow extension-bundled module requests.
+		`script-src ${webview.cspSource} 'nonce-${nonce}'`
 	].join('; ');
 
 	if (html.includes('http-equiv="Content-Security-Policy"')) {
@@ -57,7 +58,8 @@ function injectCspCustom(html: string, webview: vscode.Webview, nonce: string, e
 		`default-src 'none'`,
 		`img-src ${webview.cspSource} https: data:`,
 		`style-src ${webview.cspSource} 'unsafe-inline'`,
-		`script-src 'nonce-${nonce}'`,
+		// Vite builds use ESM imports; allow extension-bundled module requests.
+		`script-src ${webview.cspSource} 'nonce-${nonce}'`,
 		...extraDirectives,
 	].join('; ');
 
