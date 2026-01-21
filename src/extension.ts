@@ -1190,16 +1190,22 @@ export default function liveUiEditorBabelPlugin(babel) {
 			return { applied: appliedCount, failed: failedCount, skipped: skippedCount, items };
 		}
 
-		function createAppModePanel(): vscode.WebviewPanel {
+		async function createAppModePanel(): Promise<vscode.WebviewPanel> {
 			const created = vscode.window.createWebviewPanel(
 				'liveUIAppMode',
 				'Live UI Editor — App Mode',
 				vscode.ViewColumn.One,
-				{ enableScripts: true, retainContextWhenHidden: true }
+				{
+					enableScripts: true,
+					retainContextWhenHidden: true,
+					localResourceRoots: [
+						vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')
+					]
+				}
 			);
 			panel = created;
 			currentPanel = created;
-			created.webview.html = getAppModeWebviewHtml(created.webview, {
+			created.webview.html = await getAppModeWebviewHtml(created.webview, context.extensionUri, {
 				iframeUrl: currentAppProxy!.proxyOrigin,
 				appLabel: vscode.workspace.asRelativePath(appRoot!, false),
 				tauriShimEnabled,
@@ -1236,7 +1242,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 						} else {
 							// Can't actually cancel disposal; reopen the panel to preserve the session.
 							if (currentAppProxy) {
-								createAppModePanel();
+								void (async () => {
+									await createAppModePanel();
+								})();
 								return;
 							}
 						}
@@ -1834,7 +1842,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 		}
 
 		// Create the initial panel.
-		createAppModePanel();
+		await createAppModePanel();
 	});
 
 	context.subscriptions.push(disposable);

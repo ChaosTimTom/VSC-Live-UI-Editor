@@ -170,7 +170,7 @@ Notes:
 - If you paste a non-local URL, App Mode will require a safety confirmation.
 - App Mode will refuse to apply edits to files outside your workspace/app root.
 
-If your app also needs a separate backend/API server (for navigation, auth, data, etc.), use the **Start Backend** button in the App Mode HUD.
+If your app also needs a separate backend/API server (for navigation, auth, data, etc.), use the **Start Backend** button in the App Mode sidebar.
 
 - It can run a detected script like `dev:api` / `dev:backend` / `server`, or you can enter a custom command.
 - It remembers your choice per app root for one-click starts.
@@ -184,7 +184,7 @@ If UI Wizard says there is no selection, make sure you’re in **Edit** and clic
 
 ### 3) Fix “Identity: Unmapped” (highly recommended)
 
-If the toolbar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
+If the sidebar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
 
 Click **Enable Stable IDs**.
 
@@ -203,7 +203,7 @@ Then restart your dev server.
 
 ### 4) Pick how styles are written (Auto/Tailwind/CSS/Inline)
 
-Use the **Style Target** dropdown in the App Mode toolbar:
+Use the **Style Target** dropdown in the App Mode sidebar:
 
 - **Auto**: chooses the best available adapter and shows the reason.
 - **Tailwind**: writes Tailwind utility tokens into `className` (when className is a simple string).
@@ -217,7 +217,7 @@ If your app is Tauri-targeted (has `src-tauri/tauri.conf.json`), App Mode can au
 - The shim is a browser stub so the app can load and you can navigate UI.
 - Native features won’t fully work (it’s intentionally a compatibility layer, not a full Tauri runtime).
 
-You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
+You can toggle it via the **Tauri Shim** checkbox in the App Mode sidebar.
 
 ---
 
@@ -231,7 +231,7 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
 | **Select leaf element** | `Alt+Click` |
 | **Move element** | `Drag` selection |
 | **Resize element** | `Drag` corner handle |
-| **Layout mode** | HUD dropdown: **Layout: Off / Safe / Full** |
+| **Layout mode** | Sidebar dropdown: **Layout: Off / Safe / Full** |
 | **Edit text** | `Double-click` |
 | **Delete element** | Click `🗑️` button |
 | **Start backend** | Click **Start Backend** |
@@ -277,22 +277,23 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode toolbar.
 | **Edit** | Visual editing enabled — click to select, drag to move |
 | **Browse** | Normal app interaction — click events pass through |
 
-Toggle with the **Switch to Browse/Edit** button in the toolbar.
+Toggle with the **Switch to Browse/Edit** button in the sidebar.
 
 ### Layout Apply
 
 By default, layout changes (drag/resize) are **preview only**.
 
-- **OFF** (default): See visual changes, but they won't save to code
-- **ON**: Drag/resize writes `width`, `height`, `transform` to source
+- **Layout: Off** (default): preview only (won't save to code)
+- **Layout: Safe**: drag saves as margin adjustments (more responsive-friendly)
+- **Layout: Full**: drag/resize writes `width`, `height`, `transform` to source
 
-Enable via the checkbox in the toolbar when you want to commit layout changes.
+Control it via the **Layout mode** dropdown in the App Mode sidebar.
 
 ### Stable IDs (Recommended)
 
 For reliable element targeting, enable Stable IDs:
 
-1. Click **Enable Stable IDs** in the toolbar
+1. Click **Enable Stable IDs** in the sidebar
 2. The extension injects `data-lui` attributes via a Babel plugin
 3. Restart your dev server
 

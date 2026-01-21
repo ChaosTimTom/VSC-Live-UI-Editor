@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.9
+
+- App Mode: rebuilt controls as a collapsible sidebar (no more top overlay covering the app).
+- App Mode: now loads a dedicated Vite/React webview page (`appMode.html`).
+
 ## 0.1.8
 
 - Docs/Community: added Discord link + badge and pointed users to Discord for help, ideas/feedback, and sharing wins.

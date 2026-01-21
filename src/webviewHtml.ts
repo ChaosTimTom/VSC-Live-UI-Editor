@@ -52,17 +52,77 @@ function injectCsp(html: string, webview: vscode.Webview, nonce: string): string
 	);
 }
 
-export async function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): Promise<string> {
+function injectCspCustom(html: string, webview: vscode.Webview, nonce: string, extraDirectives: string[]): string {
+	const csp = [
+		`default-src 'none'`,
+		`img-src ${webview.cspSource} https: data:`,
+		`style-src ${webview.cspSource} 'unsafe-inline'`,
+		`script-src 'nonce-${nonce}'`,
+		...extraDirectives,
+	].join('; ');
+
+	if (html.includes('http-equiv="Content-Security-Policy"')) {
+		return html;
+	}
+
+	return html.replace(
+		/<head>/i,
+		`<head>\n<meta http-equiv="Content-Security-Policy" content="${csp}">`
+	);
+}
+
+function injectHeadScript(html: string, nonce: string, js: string): string {
+	return html.replace(
+		/<head>/i,
+		`<head>\n<script nonce="${nonce}">${js}</script>`
+	);
+}
+
+async function getViteWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, htmlFileName: string, opts?: {
+	cspExtraDirectives?: string[];
+	headScriptJs?: string;
+}): Promise<string> {
 	const nonce = getNonce();
 	const distRoot = vscode.Uri.joinPath(extensionUri, 'webview-ui', 'dist');
-	const indexUri = vscode.Uri.joinPath(distRoot, 'index.html');
+	const indexUri = vscode.Uri.joinPath(distRoot, htmlFileName);
 
 	const bytes = await vscode.workspace.fs.readFile(indexUri);
 	let html = Buffer.from(bytes).toString('utf8');
 
 	html = rewriteAssetUris(html, webview, distRoot);
 	html = injectNonceIntoScripts(html, nonce);
-	html = injectCsp(html, webview, nonce);
+	if (opts?.headScriptJs) {
+		html = injectHeadScript(html, nonce, opts.headScriptJs);
+	}
+	if (opts?.cspExtraDirectives && opts.cspExtraDirectives.length) {
+		html = injectCspCustom(html, webview, nonce, opts.cspExtraDirectives);
+	} else {
+		html = injectCsp(html, webview, nonce);
+	}
 
 	return html;
+}
+
+export async function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): Promise<string> {
+	return getViteWebviewHtml(webview, extensionUri, 'index.html');
+}
+
+export async function getAppModeWebviewHtmlFromVite(webview: vscode.Webview, extensionUri: vscode.Uri, opts: {
+	iframeUrl: string;
+	iframeOrigin: string;
+	appLabel: string;
+	tauriShimEnabled: boolean;
+}): Promise<string> {
+	const headScriptJs = `window.__LIVE_UI_APP_MODE_OPTS__ = ${JSON.stringify({
+		iframeUrl: opts.iframeUrl,
+		iframeOrigin: opts.iframeOrigin,
+		appLabel: opts.appLabel,
+		tauriShimEnabled: opts.tauriShimEnabled,
+	})};`;
+
+	const frameSrc = `frame-src ${opts.iframeOrigin} http://127.0.0.1:* http://localhost:*`;
+	return getViteWebviewHtml(webview, extensionUri, 'appMode.html', {
+		cspExtraDirectives: [frameSrc],
+		headScriptJs,
+	});
 }
