@@ -46,6 +46,15 @@ export type ElementSelectedMessage = {
 	};
 	inlineStyle?: string;
 	computedStyle?: Record<string, string>;
+	ancestors?: Array<{ tagName: string; classList?: string[] }>;
+	selectionHints?: {
+		isScrollContainer?: boolean;
+		isInsideScroll?: boolean;
+		isRepeatedItem?: boolean;
+		responsiveContainer?: boolean;
+		scrollContainer?: { tagName: string; classList?: string[] };
+		itemRoot?: { tagName: string; classList?: string[] };
+	};
 };
 
 export type ElementUnmappedMessage = {
@@ -64,6 +73,15 @@ export type ElementUnmappedMessage = {
 	};
 	inlineStyle?: string;
 	computedStyle?: Record<string, string>;
+	ancestors?: Array<{ tagName: string; classList?: string[] }>;
+	selectionHints?: {
+		isScrollContainer?: boolean;
+		isInsideScroll?: boolean;
+		isRepeatedItem?: boolean;
+		responsiveContainer?: boolean;
+		scrollContainer?: { tagName: string; classList?: string[] };
+		itemRoot?: { tagName: string; classList?: string[] };
+	};
 };
 
 export type TargetsListMessage = {
@@ -173,11 +191,67 @@ export type StartBackendMessage = {
 	command: 'startBackend';
 };
 
+export type DeleteElementMessage = {
+	command: 'deleteElement';
+	file: string; // workspace-relative when available, otherwise absolute fsPath
+	line: number; // 1-based
+	column?: number; // 1-based
+	elementId?: string; // stable id when available (e.g. data-lui)
+	elementContext?: {
+		tagName: string;
+		id?: string;
+		classList?: string[];
+		role?: string;
+		href?: string;
+		type?: string;
+		text?: string;
+	};
+};
+
 export type OpenHelpMessage = {
 	command: 'openHelp';
 };
 
-export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage;
+export type OpenAppModeMessage = {
+	command: 'openAppMode';
+};
+
+export type PickTargetFileMessage = {
+	command: 'pickTargetFile';
+	kind: 'html' | 'react' | 'any' | 'active' | 'sample';
+};
+
+export type QuickStartMessage = {
+	command: 'quickStart';
+	mode: 'static' | 'app';
+	static?: {
+		target?: 'htmlPicker' | 'active' | 'sample';
+	};
+	app?: {
+		connect?: 'integrated' | 'external' | 'existing';
+		url?: string;
+		styleAdapterPref?: 'auto' | 'tailwind' | 'cssClass' | 'inline';
+		layoutApplyMode?: 'off' | 'safe' | 'full';
+		startBackend?: boolean;
+	};
+};
+
+export type QuickStartInfoMessage = {
+	command: 'quickStartInfo';
+	info: {
+		hasWorkspace: boolean;
+		packageManager?: 'pnpm' | 'yarn' | 'npm';
+		appsDetected?: Array<{ framework: 'vite' | 'next' | 'cra' | 'astro' | 'sveltekit' | 'angular' | 'vue' | 'nuxt' | 'gatsby' | 'remix' | 'generic'; label: string }>;
+		recommendedMode: 'html' | 'app';
+		recommendedUrl?: string;
+		recommendedConnect?: 'existing' | 'integrated';
+		devHint?: string;
+		installHint?: string;
+		notes?: string[];
+	};
+};
+
+export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
 	| ElementSelectedMessage
@@ -185,6 +259,7 @@ export type FromWebviewMessage =
 	| TargetsListMessage
 	| UpdateStyleMessage
 	| UpdateTextMessage
+	| DeleteElementMessage
 	| ApplyPendingEditsMessage
 	| DiscardPendingEditsMessage
 	| SetLayoutApplyMessage
@@ -196,13 +271,41 @@ export type FromWebviewMessage =
 	| SetStyleAdapterMessage
 	| PickCssTargetMessage
 	| StartBackendMessage
-	| OpenHelpMessage;
+	| OpenHelpMessage
+	| OpenAppModeMessage
+	| PickTargetFileMessage
+	| QuickStartMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
 	const v = value as Record<string, unknown>;
 	if (v.command === 'openHelp') {
 		return true;
+	}
+	if (v.command === 'openAppMode') {
+		return true;
+	}
+	if (v.command === 'pickTargetFile') {
+		return v.kind === 'html' || v.kind === 'react' || v.kind === 'any' || v.kind === 'active' || v.kind === 'sample';
+	}
+	if (v.command === 'quickStart') {
+		if (!(v.mode === 'static' || v.mode === 'app')) return false;
+		if (v.mode === 'static') {
+			if (v.static === undefined) return true;
+			if (!v.static || typeof v.static !== 'object') return false;
+			const s = v.static as Record<string, unknown>;
+			return s.target === undefined || s.target === 'htmlPicker' || s.target === 'active' || s.target === 'sample';
+		}
+		// app
+		if (v.app === undefined) return true;
+		if (!v.app || typeof v.app !== 'object') return false;
+		const a = v.app as Record<string, unknown>;
+		const connectOk = a.connect === undefined || a.connect === 'integrated' || a.connect === 'external' || a.connect === 'existing';
+		const urlOk = a.url === undefined || typeof a.url === 'string';
+		const styleOk = a.styleAdapterPref === undefined || a.styleAdapterPref === 'auto' || a.styleAdapterPref === 'tailwind' || a.styleAdapterPref === 'cssClass' || a.styleAdapterPref === 'inline';
+		const layoutOk = a.layoutApplyMode === undefined || a.layoutApplyMode === 'off' || a.layoutApplyMode === 'safe' || a.layoutApplyMode === 'full';
+		const backendOk = a.startBackend === undefined || typeof a.startBackend === 'boolean';
+		return connectOk && urlOk && styleOk && layoutOk && backendOk;
 	}
 	if (v.command === 'elementClicked') {
 		const colOk = v.column === undefined || typeof v.column === 'number';
@@ -327,6 +430,26 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 			const textOk = c.text === undefined || typeof c.text === 'string';
 			const classOk = c.classList === undefined || (Array.isArray(c.classList) && c.classList.every(x => typeof x === 'string'));
 			if (!(idOk && roleOk && hrefOk && typeOk && textOk && classOk)) return false;
+		}
+		return true;
+	}
+	if (v.command === 'deleteElement') {
+		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
+		const colOk = v.column === undefined || typeof v.column === 'number';
+		if (!colOk) return false;
+		const idOk = v.elementId === undefined || typeof v.elementId === 'string';
+		if (!idOk) return false;
+		if (v.elementContext !== undefined) {
+			if (!v.elementContext || typeof v.elementContext !== 'object') return false;
+			const c = v.elementContext as Record<string, unknown>;
+			if (typeof c.tagName !== 'string') return false;
+			const ctxIdOk = c.id === undefined || typeof c.id === 'string';
+			const roleOk = c.role === undefined || typeof c.role === 'string';
+			const hrefOk = c.href === undefined || typeof c.href === 'string';
+			const typeOk = c.type === undefined || typeof c.type === 'string';
+			const textOk = c.text === undefined || typeof c.text === 'string';
+			const classOk = c.classList === undefined || (Array.isArray(c.classList) && c.classList.every(x => typeof x === 'string'));
+			if (!(ctxIdOk && roleOk && hrefOk && typeOk && textOk && classOk)) return false;
 		}
 		return true;
 	}

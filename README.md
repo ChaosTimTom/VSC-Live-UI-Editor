@@ -5,7 +5,7 @@
 <h1 align="center">Live UI Editor</h1>
 
 <p align="center">
-  <strong>Visual React/Vite/Next.js editing inside VS Code — click-to-code, live preview, and safe source updates.</strong>
+  <strong>Visual UI editing inside VS Code — Static HTML mode + App Mode (React/Vite/Next.js) with click-to-code, live preview, and safe source updates.</strong>
 </p>
 
 <p align="center">
@@ -75,7 +75,10 @@ You can control how layout changes are persisted:
 <td width="50%">
 
 ### ✏️ Inline Text Editing
-Double-click any text to edit it inline. Supports i18n — automatically updates your translation JSON files.
+Double-click to edit text inline.
+
+- **App Mode**: supports i18n-aware updates for common `t('key')` patterns when translation files are present.
+- **Static HTML mode**: edits plain HTML text.
 
 </td>
 <td width="50%">
@@ -120,6 +123,24 @@ Preview common device sizes and enable safe-area + warning overlays to catch res
 
 ---
 
+## 🧭 Two Editing Modes
+
+Live UI Editor supports two ways of working:
+
+### 1) Static HTML mode (no dev server)
+
+- Open an `.html` file and edit it visually.
+- Best for simple sites, prototypes, or when you don’t have a dev server.
+
+### 2) App Mode (dev server)
+
+- Connects to a local dev server (Vite/Next/etc.) and lets you edit your real running app UI.
+- Changes are staged as **Pending** and you choose when to **Apply to Code**.
+
+The extension’s **Welcome / Quick Start** screen helps you choose the right mode.
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -139,8 +160,11 @@ code --install-extension TheImmersiveSaga.vscode-live-ui-editor
 ### First Launch
 
 1. **Open** your React/Vite project in VS Code
-2. **Press** `Ctrl+Shift+P` → type **"Live UI: Open (App Mode)"**
-3. **Start editing** — click, drag, resize, or double-click text
+2. **Press** `Ctrl+Shift+P` → type **"Live UI: Open"**
+3. In the Welcome screen, choose:
+  - **Static HTML / No dev server**, or
+  - **App Mode (dev server)**
+4. **Start editing** — click, drag, resize, or double-click text
 
 That's it! Your changes are staged and ready to apply.
 
@@ -151,11 +175,13 @@ Join the Discord: https://discord.gg/QHnHhCjWDQ
 
 ## 🧠 First-Time Setup (Idiot-Proof)
 
+Most people should run **Live UI: Open** and follow the Welcome screen.
+
 App Mode needs a running dev server it can iframe.
 
 ### 1) Start / connect to your dev server
 
-Run **"Live UI: Open (App Mode)"** and the extension will:
+Run **"Live UI: Open"** (or **"Live UI: Open (App Mode)"**) and the extension will:
 
 - Try to **auto-detect** a running dev server on common ports.
 - If none is found, it offers:
@@ -199,11 +225,20 @@ Examples:
 - `@ui-wizard move right 20`
 - `@ui-wizard x 40 y 12`
 
+It also supports:
+
+- Style suggestions with preview/apply (`suggest`, `preview`, `apply`, `undo`)
+- Bulk apply to groups (`apply 1 to all buttons`)
+- Structural edits (`add a header`, `wrap this in a box`)
+- Image helpers (`use an image as the background`)
+
 Help:
 
 - `@ui-wizard commands`
 - `@ui-wizard commands for layout`
 - `@ui-wizard commands for bulk`
+- `@ui-wizard commands for structure`
+- `@ui-wizard commands for images`
 
 ### 3) Fix “Identity: Unmapped” (highly recommended)
 
@@ -292,6 +327,8 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode sidebar.
 ---
 
 ## 📖 Documentation
+
+For full beginner-friendly help (including the Welcome screen flow, Static HTML mode, App Mode, UI Wizard, and troubleshooting), see [HELP.md](HELP.md).
 
 ### Editing Modes
 

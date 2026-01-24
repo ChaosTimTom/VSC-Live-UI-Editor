@@ -327,6 +327,28 @@ export class CodeModifier {
 		return true;
 	}
 
+	public async ensureItemsArrayInNearestComponent(
+		fileUri: vscode.Uri,
+		lineNumber: number,
+		options: { varName?: string; count: number }
+	): Promise<boolean> {
+		const ext = fileUri.path.toLowerCase();
+		if (!(ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js'))) return false;
+		const count = Math.max(1, Math.min(200, Math.floor(options.count)));
+		const varName = (options.varName && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(options.varName)) ? options.varName : 'items';
+
+		const doc = await vscode.workspace.openTextDocument(fileUri);
+		const text = doc.getText();
+		const updatedText = ensureItemsArrayInNearestComponent(text, fileUri.fsPath, lineNumber, { varName, count });
+		if (!updatedText || updatedText === text) return false;
+		const edit = new vscode.WorkspaceEdit();
+		edit.replace(fileUri, new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), updatedText);
+		const applied = await vscode.workspace.applyEdit(edit);
+		if (!applied) throw new Error('Failed to apply WorkspaceEdit');
+		await doc.save();
+		return true;
+	}
+
 	public async updateStyleAll(fileUri: vscode.Uri, tagName: string, newStyles: Record<string, string>): Promise<boolean> {
 		return this.updateStyleAllMany(fileUri, [tagName], newStyles);
 	}
@@ -442,6 +464,60 @@ export class CodeModifier {
 		await doc.save();
 		return true;
 	}
+}
+
+function ensureItemsArrayInNearestComponent(
+	input: string,
+	filePathForProject: string,
+	lineNumber: number,
+	options: { varName: string; count: number }
+): string {
+	const project = new Project({ useInMemoryFileSystem: true, skipFileDependencyResolution: true });
+	const sourceFile = project.createSourceFile(filePathForProject, input, { overwrite: true });
+	const target = findNearestJsxNodeAtLine(sourceFile, lineNumber);
+	if (!target) return input;
+
+	const initText = `Array.from({ length: ${options.count} }, (_, i) => ({ id: i + 1, title: \`Card ${'${i + 1}'}\`, subtitle: 'Description' }))`;
+
+	// Find nearest enclosing function-like node.
+	let cur: any = target;
+	let func: any | undefined;
+	while (cur) {
+		const k = cur.getKind?.();
+		if (k === SyntaxKind.FunctionDeclaration || k === SyntaxKind.FunctionExpression || k === SyntaxKind.ArrowFunction) {
+			func = cur;
+			break;
+		}
+		cur = cur.getParent?.();
+	}
+	if (!func) return input;
+
+	// Arrow fn can have expression body.
+	if (func.getKind() === SyntaxKind.ArrowFunction) {
+		const body: any = func.getBody?.();
+		if (!body) return input;
+		if (body.getKind && body.getKind() !== SyntaxKind.Block) {
+			// Convert to block body.
+			const existingText = body.getText();
+			func.setBodyText(`{\n  const ${options.varName} = ${initText};\n  return ${existingText};\n}`);
+			return sourceFile.getFullText();
+		}
+	}
+
+	const block: any = func.getBody?.();
+	if (!block || (block.getKind && block.getKind() !== SyntaxKind.Block)) return input;
+
+	try {
+		const existing = block
+			.getDescendantsOfKind(SyntaxKind.VariableDeclaration)
+			.some((d: any) => String(d.getName?.() ?? '') === options.varName);
+		if (existing) return input;
+	} catch {
+		// ignore
+	}
+
+	block.insertStatements(0, `const ${options.varName} = ${initText};`);
+	return sourceFile.getFullText();
 }
 
 function ensureJsxClassNamesAtLocation(
@@ -768,9 +844,14 @@ function findHtmlElementAtLine(input: string, lineNumber: number): { tag: string
 	const lines = input.split(/\r?\n/);
 	const idx = Math.max(0, Math.min(lines.length - 1, lineNumber - 1));
 	const line = lines[idx] ?? '';
-	const m = line.match(/<\s*([A-Za-z][A-Za-z0-9:_-]*)\b/);
-	if (!m) return;
-	const tag = m[1];
+	// Prefer the last opening tag on the line; many files have multiple tags on a line.
+	const re = /<\s*([A-Za-z][A-Za-z0-9:_-]*)\b/g;
+	let tag: string | undefined;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(line)) !== null) {
+		tag = m[1];
+	}
+	if (!tag) return;
 	const occurrence = countOpeningTagOccurrencesUpToLine(lines, tag, idx);
 	const $ = cheerio.load(input, { xmlMode: false } as any);
 	const elems = $(tag).toArray();
@@ -791,10 +872,54 @@ function insertHtmlAtLine(input: string, lineNumber: number, position: 'before' 
 	const el = elems[Math.max(0, Math.min(elems.length - 1, occurrence - 1))];
 	if (!el) return input;
 
+	// If we're inserting inside a container that visually provides the background,
+	// try to make it responsive-safe by allowing it to grow with its content.
+	if (position === 'inside') {
+		maybeExtendHtmlBackgroundContainer($, el);
+	}
+
 	if (position === 'before') $(el).before(`\n${markup}\n`);
 	else if (position === 'after') $(el).after(`\n${markup}\n`);
 	else $(el).append(`\n${markup}\n`);
 	return $.root().html() ?? input;
+}
+
+function maybeExtendHtmlBackgroundContainer($: cheerio.CheerioAPI, el: any): void {
+	const currentStyle = ($(el).attr('style') ?? '').trim();
+	if (!currentStyle) return;
+	const map = parseCssStyleString(currentStyle);
+
+	const bg = map.get('background') || map.get('background-color') || map.get('background-image');
+	const hasBackground = !!(bg && bg.trim() && bg.trim() !== 'none' && bg.trim() !== 'transparent');
+	if (!hasBackground) return;
+
+	const height = (map.get('height') || '').trim();
+	const maxHeight = (map.get('max-height') || '').trim();
+	const isPx = (v: string) => /^\d+(?:\.\d+)?px$/i.test(v);
+	const hasFixedHeightPx = isPx(height) || isPx(maxHeight);
+	if (!hasFixedHeightPx) return;
+
+	// Convert fixed height -> min-height + auto height so the background can extend.
+	if (isPx(height)) {
+		if (!map.get('min-height')) map.set('min-height', height);
+		map.set('height', 'auto');
+	}
+	if (isPx(maxHeight)) {
+		map.set('max-height', 'none');
+	}
+
+	// If overflow is forcing clipping, relax it.
+	const overflow = (map.get('overflow') || '').trim();
+	const overflowY = (map.get('overflow-y') || '').trim();
+	const overflowX = (map.get('overflow-x') || '').trim();
+	if (overflow === 'hidden') map.set('overflow', 'visible');
+	if (overflowY === 'hidden') map.set('overflow-y', 'visible');
+	if (overflowX === 'hidden') map.set('overflow-x', 'visible');
+
+	const next = Array.from(map.entries())
+		.map(([k, v]) => `${k}: ${v}`)
+		.join('; ');
+	$(el).attr('style', next);
 }
 
 function wrapHtmlAtLineWithBox(input: string, lineNumber: number, options?: { lineUnder?: boolean }): string {

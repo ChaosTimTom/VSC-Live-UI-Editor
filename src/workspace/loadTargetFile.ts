@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { DEFAULT_SAMPLE } from '../samples/sampleSet';
 
 export type LoadedTarget = {
 	uri: vscode.Uri;
@@ -23,7 +24,7 @@ export async function loadTargetFile(): Promise<LoadedTarget | undefined> {
 
 	// Default to sample file if present.
 	if (workspaceFolder) {
-		const sample = vscode.Uri.joinPath(workspaceFolder.uri, 'sample-ui.html');
+		const sample = vscode.Uri.joinPath(workspaceFolder.uri, DEFAULT_SAMPLE.relativePath);
 		try {
 			await vscode.workspace.fs.stat(sample);
 			const bytes = await vscode.workspace.fs.readFile(sample);

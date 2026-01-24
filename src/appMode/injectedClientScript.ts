@@ -494,6 +494,104 @@ export const injectedClientScript = String.raw`
 		}
 
 		function sendSelected(el) {
+			function ancestorsSummary(node) {
+				try {
+					var out = [];
+					var cur = node;
+					for (var i = 0; i < 6; i++) {
+						if (!cur || !(cur instanceof Element)) break;
+						cur = cur.parentElement;
+						if (!cur) break;
+						var tag = (cur.tagName || '').toLowerCase();
+						var cls = [];
+						try { cls = cur.classList ? Array.from(cur.classList).slice(0, 8) : []; } catch {}
+						out.push({ tagName: tag, classList: cls });
+					}
+					return out;
+				} catch {
+					return [];
+				}
+			}
+
+			function selectionHints(node) {
+				var hints = { isScrollContainer: false, isInsideScroll: false, isRepeatedItem: false, responsiveContainer: false, scrollContainer: null, itemRoot: null };
+				try {
+					if (!(node instanceof Element)) return hints;
+					var cs0 = window.getComputedStyle(node);
+					var oy0 = (cs0.overflowY || '').toLowerCase();
+					if (oy0 === 'auto' || oy0 === 'scroll') {
+						hints.isScrollContainer = true;
+						try { hints.isScrollContainer = hints.isScrollContainer && (node.scrollHeight > node.clientHeight + 2); } catch {}
+					}
+					// Find closest scroll ancestor.
+					var p = node.parentElement;
+					for (var i = 0; i < 8 && p; i++) {
+						var cs = window.getComputedStyle(p);
+						var oy = (cs.overflowY || '').toLowerCase();
+						if (oy === 'auto' || oy === 'scroll') {
+							hints.isInsideScroll = true;
+							try {
+								var tag = (p.tagName || '').toLowerCase();
+								var cls = [];
+								try { cls = p.classList ? Array.from(p.classList).slice(0, 8) : []; } catch {}
+								hints.scrollContainer = { tagName: tag, classList: cls };
+							} catch {}
+							break;
+						}
+						p = p.parentElement;
+					}
+					// Repeated-item heuristic: sibling set has multiple elements with same tag.
+					var parent = node.parentElement;
+					if (parent) {
+						var tag = (node.tagName || '').toLowerCase();
+						var same = 0;
+						var kids = parent.children || [];
+						for (var k = 0; k < kids.length; k++) {
+							var ch = kids[k];
+							if (!ch || !(ch instanceof Element)) continue;
+							if (((ch.tagName || '').toLowerCase()) === tag) same++;
+						}
+						if (same >= 3) hints.isRepeatedItem = true;
+						// Responsive heuristic: parent is flex/grid and width is auto/percent.
+						try {
+							var pcs = window.getComputedStyle(parent);
+							var disp = (pcs.display || '').toLowerCase();
+							if (disp === 'flex' || disp === 'grid') hints.responsiveContainer = true;
+						} catch {}
+					}
+
+					// Item-root heuristic: find the nearest ancestor that looks like a repeated "card".
+					// We look for an element whose parent has 3+ children of the same tag.
+					try {
+						var cur = node;
+						for (var j = 0; j < 6 && cur && cur.parentElement; j++) {
+							var par = cur.parentElement;
+							var t = (cur.tagName || '').toLowerCase();
+							var count = 0;
+							var kids2 = par.children || [];
+							for (var kk = 0; kk < kids2.length; kk++) {
+								var ch2 = kids2[kk];
+								if (!ch2 || !(ch2 instanceof Element)) continue;
+								if (((ch2.tagName || '').toLowerCase()) === t) count++;
+							}
+							if (count >= 3) {
+								// Avoid picking the scroll container itself.
+								if (hints.scrollContainer && hints.scrollContainer.tagName && t === String(hints.scrollContainer.tagName || '')) {
+									// keep searching upwards
+								} else {
+									var cls2 = [];
+									try { cls2 = cur.classList ? Array.from(cur.classList).slice(0, 8) : []; } catch {}
+									hints.itemRoot = { tagName: t, classList: cls2 };
+									break;
+								}
+							}
+							cur = par;
+						}
+					} catch {}
+				} catch {}
+				return hints;
+			}
+
 			var elementId = getElementId(el);
 			var ds = elementId ? tryParseLuiElementId(elementId) : undefined;
 			if (!ds) {
@@ -507,6 +605,8 @@ export const injectedClientScript = String.raw`
 					elementContext: elementContext(el),
 					inlineStyle: el.getAttribute ? (el.getAttribute('style') || undefined) : undefined,
 					computedStyle: safeComputedStyle(el),
+					ancestors: ancestorsSummary(el),
+					selectionHints: selectionHints(el),
 				});
 				return;
 			}
@@ -519,6 +619,8 @@ export const injectedClientScript = String.raw`
 				elementContext: elementContext(el),
 				inlineStyle: el.getAttribute ? (el.getAttribute('style') || undefined) : undefined,
 				computedStyle: safeComputedStyle(el),
+				ancestors: ancestorsSummary(el),
+				selectionHints: selectionHints(el),
 			});
 		}
 
@@ -680,6 +782,50 @@ export const injectedClientScript = String.raw`
 			if (data.type === 'live-ui-editor:setDebug') return setDebug(data);
 			if (data.type === 'live-ui-editor:previewStyle') return applyPreview(data.style || {});
 			if (data.type === 'live-ui-editor:clearPreview') return clearPreview();
+			if (data.type === 'live-ui-editor:requestTargets') {
+				try {
+					var selector = String(data.selector || '').trim();
+					var requestId = String(data.requestId || '');
+					if (!requestId) return;
+					if (!selector) {
+						postToParent({ command: 'targetsList', requestId: requestId, targets: [] });
+						return;
+					}
+					var els = [];
+					try {
+						els = Array.from(document.querySelectorAll(selector));
+					} catch {
+						postToParent({ command: 'targetsList', requestId: requestId, targets: [] });
+						return;
+					}
+
+					var targets = [];
+					var seen = {};
+					var limit = 200;
+					for (var i = 0; i < els.length && targets.length < limit; i++) {
+						var el = els[i];
+						if (!(el instanceof Element)) continue;
+						// Reuse the same mapping strategy as selection.
+						var elementId = getElementId(el);
+						var ds = elementId ? tryParseLuiElementId(elementId) : undefined;
+						if (!ds) {
+							var fiber = findFiberFromDom(el);
+							ds = fiber ? getDebugSourceFromFiber(fiber) : undefined;
+						}
+						if (!ds) continue;
+						var k = String(ds.fileName) + ':' + String(ds.lineNumber);
+						if (seen[k]) continue;
+						seen[k] = true;
+						targets.push({ file: ds.fileName, line: ds.lineNumber });
+					}
+					postToParent({ command: 'targetsList', requestId: requestId, targets: targets });
+				} catch {
+					try {
+						postToParent({ command: 'targetsList', requestId: String(data.requestId || ''), targets: [] });
+					} catch {}
+				}
+				return;
+			}
 		};
 		on(window, 'message', onMessage);
 

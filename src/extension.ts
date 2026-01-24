@@ -10,7 +10,7 @@ import { getAppModeWebviewHtml } from './appMode/webviewAppModeHtml';
 import { startInjectedProxyServer, type AppProxyServer } from './appMode/proxyServer';
 import { injectedClientScript } from './appMode/injectedClientScript';
 import { tauriShimScript } from './appMode/tauriShim';
-import { pickAppCandidate, type AppFramework } from './appMode/appUtils';
+import { findGenericAppCandidates, findNextAppCandidates, findViteAppCandidates, pickAppCandidate, type AppFramework } from './appMode/appUtils';
 import { detectPackageManager, getFreePort, waitForHttpReady } from './appMode/viteUtils';
 import { startDetachedDevServerWindows } from './appMode/detachedDevServer';
 import { detectStyleSystems, tailwindTokensFromStylePatch, type StyleAdapterId, type StyleAdapterPreference } from './appMode/styleAdapters';
@@ -45,6 +45,15 @@ export function activate(context: vscode.ExtensionContext) {
 				href?: string;
 				type?: string;
 				text?: string;
+			};
+			ancestors?: Array<{ tagName: string; classList?: string[] }>;
+			selectionHints?: {
+				isScrollContainer?: boolean;
+				isInsideScroll?: boolean;
+				isRepeatedItem?: boolean;
+				responsiveContainer?: boolean;
+				scrollContainer?: { tagName: string; classList?: string[] };
+				itemRoot?: { tagName: string; classList?: string[] };
 			};
 			inlineStyle?: string;
 			computedStyle?: Record<string, string>;
@@ -448,6 +457,88 @@ export default function liveUiEditorBabelPlugin(babel) {
 		requestTargetsIfOpen,
 	});
 
+	const buildQuickStartInfo = async (): Promise<ToWebviewMessage> => {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		const hasWorkspace = !!workspaceFolder;
+		if (!workspaceFolder) {
+			return {
+				command: 'quickStartInfo',
+				info: {
+					hasWorkspace: false,
+					recommendedMode: 'html',
+					notes: ['Open a folder to enable App Mode auto-detection.'],
+				}
+			};
+		}
+
+		const pm = await detectPackageManager();
+		const installHint = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn' : 'npm install';
+		const devHint = pm === 'pnpm' ? 'pnpm dev' : pm === 'yarn' ? 'yarn dev' : 'npm run dev';
+
+		const [vite, next, generic] = await Promise.all([findViteAppCandidates(), findNextAppCandidates(), findGenericAppCandidates()]);
+		const appsDetected = [...next, ...vite, ...generic]
+			.map(a => ({ framework: a.framework, label: a.label || vscode.workspace.asRelativePath(a.root, false) || a.root.fsPath }))
+			.slice(0, 6);
+		const hasApps = appsDetected.length > 0;
+		const preferredFramework = appsDetected[0]?.framework;
+		const host = '127.0.0.1';
+		const defaultPortForFramework = (fw: AppFramework | undefined): number => {
+			switch (fw) {
+				case 'next':
+				case 'cra':
+				case 'nuxt':
+				case 'remix':
+					return 3000;
+				case 'vite':
+				case 'sveltekit':
+					return 5173;
+				case 'astro':
+					return 4321;
+				case 'angular':
+					return 4200;
+				case 'vue':
+					return 8080;
+				case 'gatsby':
+					return 8000;
+				default:
+					return 3000;
+			}
+		};
+		const recommendedUrl = hasApps
+			? `http://${host}:${defaultPortForFramework(preferredFramework)}`
+			: undefined;
+		const recommendedConnect = recommendedUrl
+			? ((await waitForHttpReady(recommendedUrl, 800)) ? 'existing' : 'integrated')
+			: undefined;
+
+		const notes: string[] = [];
+		if (hasApps && appsDetected.length > 1) {
+			notes.push('Multiple apps detected. App Mode will ask which one to use.');
+		}
+		if (!hasApps) {
+			// Lightweight hint: do we see any HTML at all?
+			const htmlFiles = await vscode.workspace.findFiles('**/*.{html,htm}', '**/node_modules/**', 1);
+			if (htmlFiles.length === 0) {
+				notes.push('No Vite/Next app detected. Use HTML mode, or start App Mode manually if your framework is unsupported.');
+			}
+		}
+
+		return {
+			command: 'quickStartInfo',
+			info: {
+				hasWorkspace,
+				packageManager: pm,
+				appsDetected: hasApps ? appsDetected : undefined,
+				recommendedMode: hasApps ? 'app' : 'html',
+				recommendedUrl,
+				recommendedConnect,
+				installHint,
+				devHint,
+				notes: notes.length ? notes : undefined,
+			}
+		};
+	};
+
 	const disposable = vscode.commands.registerCommand('liveUI.open', async () => {
 		const panel = vscode.window.createWebviewPanel(
 			'liveUIEditor',
@@ -474,6 +565,128 @@ export default function liveUiEditorBabelPlugin(babel) {
 		panel.webview.onDidReceiveMessage(async (message: unknown) => {
 			if (!isFromWebviewMessage(message)) return;
 
+			if (message.command === 'pickTargetFile') {
+				const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+				const pickHtml = async (): Promise<vscode.Uri | undefined> => {
+					const selection = await vscode.window.showOpenDialog({
+						canSelectMany: false,
+						openLabel: 'Open in Live UI',
+						filters: { 'HTML': ['html', 'htm'] },
+					});
+					return selection?.[0];
+				};
+
+				let loaded: { uri: vscode.Uri; fileId: string; text: string } | undefined;
+				if (message.kind === 'html') {
+					const uri = await pickHtml();
+					if (!uri) return;
+					const doc = await vscode.workspace.openTextDocument(uri);
+					const fileId = workspaceFolder ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath;
+					loaded = { uri, fileId, text: doc.getText() };
+				} else if (message.kind === 'active') {
+					const active = vscode.window.activeTextEditor?.document;
+					if (!active || active.uri.scheme !== 'file') {
+						vscode.window.showInformationMessage('Live UI Editor: No active file to open.');
+						return;
+					}
+					const uri = active.uri;
+					const fileId = workspaceFolder ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath;
+					loaded = { uri, fileId, text: active.getText() };
+				} else if (message.kind === 'sample') {
+					loaded = await loadTargetFile();
+				} else {
+					loaded = await loadTargetFile();
+				}
+
+				if (!loaded) return;
+				lastLoadedUri = loaded.uri;
+				lastLoadedFileId = loaded.fileId;
+				const doc = await vscode.workspace.openTextDocument(loaded.uri);
+				const injected = injectSourceMetadataRobust(doc.getText(), loaded.fileId, { cacheKey: loaded.uri.toString(), version: doc.version });
+				const msg: ToWebviewMessage = { command: 'setDocument', file: loaded.fileId, html: injected };
+				panel.webview.postMessage(msg);
+				return;
+			}
+
+			if (message.command === 'quickStart') {
+				if (message.mode === 'static') {
+					const target = message.static?.target;
+					if (target === 'htmlPicker') {
+						const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+						const selection = await vscode.window.showOpenDialog({
+							canSelectMany: false,
+							openLabel: 'Open in Live UI',
+							filters: { 'HTML': ['html', 'htm'] },
+						});
+						const uri = selection?.[0];
+						if (!uri) return;
+						const doc = await vscode.workspace.openTextDocument(uri);
+						const fileId = workspaceFolder ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath;
+						lastLoadedUri = uri;
+						lastLoadedFileId = fileId;
+						const injected = injectSourceMetadataRobust(doc.getText(), fileId, { cacheKey: uri.toString(), version: doc.version });
+						panel.webview.postMessage({ command: 'setDocument', file: fileId, html: injected } satisfies ToWebviewMessage);
+						return;
+					}
+					if (target === 'active') {
+						const active = vscode.window.activeTextEditor?.document;
+						if (!active || active.uri.scheme !== 'file') {
+							vscode.window.showInformationMessage('Live UI Editor: No active file to open.');
+							return;
+						}
+						const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+						const fileId = workspaceFolder ? vscode.workspace.asRelativePath(active.uri, false) : active.uri.fsPath;
+						lastLoadedUri = active.uri;
+						lastLoadedFileId = fileId;
+						const injected = injectSourceMetadataRobust(active.getText(), fileId, { cacheKey: active.uri.toString(), version: active.version });
+						panel.webview.postMessage({ command: 'setDocument', file: fileId, html: injected } satisfies ToWebviewMessage);
+						return;
+					}
+					if (target === 'sample') {
+						const loaded = await loadTargetFile();
+						if (!loaded) return;
+						lastLoadedUri = loaded.uri;
+						lastLoadedFileId = loaded.fileId;
+						const doc = await vscode.workspace.openTextDocument(loaded.uri);
+						const injected = injectSourceMetadataRobust(doc.getText(), loaded.fileId, { cacheKey: loaded.uri.toString(), version: doc.version });
+						panel.webview.postMessage({ command: 'setDocument', file: loaded.fileId, html: injected } satisfies ToWebviewMessage);
+						return;
+					}
+					// If no target specified, just do nothing (welcome stays).
+					return;
+				}
+
+				// App Mode
+				const app = message.app ?? {};
+				await vscode.commands.executeCommand('liveUI.openAppMode', {
+					quickStart: true,
+					connect: app.connect,
+					url: app.url,
+					styleAdapterPref: app.styleAdapterPref,
+					layoutApplyMode: app.layoutApplyMode,
+					startBackend: app.startBackend,
+				});
+				// Close the welcome panel after launching App Mode.
+				try { panel.dispose(); } catch {}
+				return;
+			}
+
+			if (message.command === 'openHelp') {
+				try {
+					const helpUri = vscode.Uri.joinPath(context.extensionUri, 'HELP.md');
+					const doc = await vscode.workspace.openTextDocument(helpUri);
+					await vscode.window.showTextDocument(doc, { preview: false });
+				} catch (err) {
+					output.appendLine(`[help:error] ${String(err)}`);
+					vscode.window.showErrorMessage('Live UI Editor: Failed to open Help. See Output → Live UI Editor.');
+				}
+				return;
+			}
+			if (message.command === 'openAppMode') {
+				await vscode.commands.executeCommand('liveUI.openAppMode');
+				return;
+			}
+
 			if (message.command === 'elementSelected') {
 				const targetUri = resolveFileIdToUri(message.file) ?? lastLoadedUri;
 				if (!targetUri) return;
@@ -481,11 +694,29 @@ export default function liveUiEditorBabelPlugin(babel) {
 					fileId: message.file,
 					line: message.line,
 					column: message.column,
-						elementId: (message as any).elementId,
+					elementId: (message as any).elementId,
 					uri: targetUri,
 					elementContext: message.elementContext,
+					ancestors: (message as any).ancestors,
+					selectionHints: (message as any).selectionHints,
 					inlineStyle: message.inlineStyle,
 					computedStyle: message.computedStyle,
+				};
+				return;
+			}
+
+			if (message.command === 'elementUnmapped') {
+				// App Mode can select an element even if it can't map to source.
+				// Still record context so UI Wizard can respond with better guidance.
+				lastSelected = {
+					fileId: lastLoadedFileId ?? '(unmapped)',
+					line: 1,
+					uri: lastLoadedUri ?? (vscode.workspace.workspaceFolders?.[0]?.uri ?? context.extensionUri),
+					elementContext: (message as any).elementContext,
+					ancestors: (message as any).ancestors,
+					selectionHints: (message as any).selectionHints,
+					inlineStyle: (message as any).inlineStyle,
+					computedStyle: (message as any).computedStyle,
 				};
 				return;
 			}
@@ -567,34 +798,49 @@ export default function liveUiEditorBabelPlugin(babel) {
 		});
 
 		panel.webview.html = await getWebviewHtml(panel.webview, context.extensionUri);
-
-		const loaded = await loadTargetFile();
-		if (loaded) {
-			lastLoadedUri = loaded.uri;
-			lastLoadedFileId = loaded.fileId;
-			// Prefer reading via VS Code so we have a document version for injector caching.
-			const doc = await vscode.workspace.openTextDocument(loaded.uri);
-			const injected = injectSourceMetadataRobust(doc.getText(), loaded.fileId, { cacheKey: loaded.uri.toString(), version: doc.version });
-			const msg: ToWebviewMessage = {
-				command: 'setDocument',
-				file: loaded.fileId,
-				html: injected
-			};
-			panel.webview.postMessage(msg);
-		} else {
-			vscode.window.showInformationMessage('Live UI Editor: No file selected to render.');
-		}
+		// Provide repo hints for the Welcome screen (non-interactive, best-effort).
+		void (async () => {
+			try {
+				const msg = await buildQuickStartInfo();
+				panel.webview.postMessage(msg);
+			} catch (err) {
+				output.appendLine(`[quickStartInfo:error] ${String(err)}`);
+			}
+		})();
 	});
 
-	const disposableAppMode = vscode.commands.registerCommand('liveUI.openAppMode', async () => {
+	const disposableAppMode = vscode.commands.registerCommand('liveUI.openAppMode', async (arg?: any) => {
+		type QuickStartArgs = {
+			quickStart?: boolean;
+			connect?: 'integrated' | 'external' | 'existing';
+			url?: string;
+			styleAdapterPref?: StyleAdapterPreference;
+			layoutApplyMode?: 'off' | 'safe' | 'full';
+			startBackend?: boolean;
+		};
+		const qs: QuickStartArgs | undefined = (arg && typeof arg === 'object') ? (arg as QuickStartArgs) : undefined;
 		const app = await pickAppCandidate();
 		if (!app) return;
 		const appRoot = app.root;
 		const appFramework: AppFramework = app.framework;
+		const appDevScript: 'dev' | 'start' = app.devScript === 'start' ? 'start' : 'dev';
 		let tauriShimEnabled = !!(app as any).isTauri;
 
 		const pkgManager = await detectPackageManager();
 		const host = '127.0.0.1';
+
+		const scriptToCmd = (scriptName: string): string => {
+			if (pkgManager === 'pnpm') return `pnpm ${scriptName}`;
+			if (pkgManager === 'yarn') return `yarn ${scriptName}`;
+			return `npm run ${scriptName}`;
+		};
+		const runBackendCommand = (commandLine: string): void => {
+			const termName = 'Live UI App Mode: Backend';
+			let term = vscode.window.terminals.find(t => t.name === termName);
+			if (!term) term = vscode.window.createTerminal({ name: termName, cwd: appRoot.fsPath });
+			term.show(true);
+			term.sendText(commandLine, true);
+		};
 
 		const isPortFree = async (portToCheck: number): Promise<boolean> => {
 			return await new Promise((resolve) => {
@@ -607,11 +853,53 @@ export default function liveUiEditorBabelPlugin(babel) {
 			});
 		};
 
+		const defaultPortForFramework = (framework: AppFramework): number => {
+			switch (framework) {
+				case 'next':
+				case 'cra':
+				case 'nuxt':
+				case 'remix':
+					return 3000;
+				case 'vite':
+				case 'sveltekit':
+					return 5173;
+				case 'astro':
+					return 4321;
+				case 'angular':
+					return 4200;
+				case 'vue':
+					return 8080;
+				case 'gatsby':
+					return 8000;
+				default:
+					return 3000;
+			}
+		};
+		const supportsPortArgs = (framework: AppFramework): boolean => {
+			return framework === 'vite' || framework === 'next' || framework === 'sveltekit' || framework === 'astro';
+		};
 		const candidateOrigins = (framework: AppFramework): string[] => {
-			const ports = framework === 'next'
-				? [3000, 3001, 3002, 3003, 3004, 3005]
-				: [5173, 5174, 5175, 5176, 4173, 3000];
-			return ports.map(p => `http://${host}:${p}`);
+			switch (framework) {
+				case 'next':
+					return [3000, 3001, 3002, 3003, 3004, 3005].map(p => `http://${host}:${p}`);
+				case 'vite':
+				case 'sveltekit':
+					return [5173, 5174, 5175, 5176, 4173, 3000].map(p => `http://${host}:${p}`);
+				case 'astro':
+					return [4321, 4322, 5173, 3000].map(p => `http://${host}:${p}`);
+				case 'angular':
+					return [4200, 4201, 3000].map(p => `http://${host}:${p}`);
+				case 'vue':
+					return [8080, 8081, 3000].map(p => `http://${host}:${p}`);
+				case 'gatsby':
+					return [8000, 8001, 3000].map(p => `http://${host}:${p}`);
+				case 'cra':
+				case 'nuxt':
+				case 'remix':
+					return [3000, 3001, 5173].map(p => `http://${host}:${p}`);
+				default:
+					return [5173, 3000, 8080, 4200, 4321, 8000].map(p => `http://${host}:${p}`);
+			}
 		};
 
 		const autoDetectRunning = async (): Promise<string | undefined> => {
@@ -622,42 +910,69 @@ export default function liveUiEditorBabelPlugin(babel) {
 			return undefined;
 		};
 
-		// 1) Try to auto-connect first.
-		let origin = await autoDetectRunning();
+		// 1) Try to auto-connect first (unless Quick Start provided an explicit URL).
+		const qsUrl = (qs?.url && typeof qs.url === 'string' && qs.url.trim()) ? qs.url.trim() : undefined;
+		let origin = qsUrl ? qsUrl : await autoDetectRunning();
 		let port: number;
-		let launchMode: 'external' | 'integrated' | 'existing' = 'existing';
+		let launchMode: 'external' | 'integrated' | 'existing' = qsUrl ? 'existing' : ((qs?.connect as any) ?? 'existing');
+		if (origin && !qsUrl) {
+			// If a server is already running, don't start another one.
+			launchMode = 'existing';
+		}
 
-		// 2) If not running, choose a good default port and ask what to do.
+		// 2) If not running, choose a good default port and ask what to do (unless Quick Start specified).
 		if (!origin) {
-			if (appFramework === 'next') {
-				port = (await isPortFree(3000)) ? 3000 : await getFreePort();
+			const preferredPort = defaultPortForFramework(appFramework);
+			if (supportsPortArgs(appFramework)) {
+				if (appFramework === 'next') {
+					port = (await isPortFree(preferredPort)) ? preferredPort : await getFreePort();
+				} else {
+					port = (await isPortFree(preferredPort)) ? preferredPort : await getFreePort();
+				}
 			} else {
-				port = await getFreePort();
+				// Many frameworks don't reliably accept --host/--port via npm scripts.
+				// Prefer the typical default so auto-connect has a good chance of working.
+				port = preferredPort;
 			}
 			origin = `http://${host}:${port}`;
 
-			const pick = await vscode.window.showQuickPick(
-				[
-					{ label: 'Start dev server (recommended)', description: 'Launch automatically and connect', value: 'integrated' as const },
-					{ label: 'Use existing URL', description: 'I already started the dev server', value: 'existing' as const },
-					{ label: 'External window', description: 'Start dev server in a separate window', value: 'external' as const },
-				],
-				{ title: `Live UI Editor (App Mode): ${appFramework.toUpperCase()} app detected — connect how?` }
-			);
-			if (!pick) return;
-			launchMode = pick.value;
+			if (qs?.quickStart && qs.connect) {
+				launchMode = qs.connect;
+			} else {
+				const pick = await vscode.window.showQuickPick(
+					[
+						{ label: 'Start dev server (recommended)', description: 'Launch automatically and connect', value: 'integrated' as const },
+						{ label: 'Use existing URL', description: 'I already started the dev server', value: 'existing' as const },
+						{ label: 'External window', description: 'Start dev server in a separate window', value: 'external' as const },
+					],
+					{ title: `Live UI Editor (App Mode): ${appFramework.toUpperCase()} app detected — connect how?` }
+				);
+				if (!pick) return;
+				launchMode = pick.value;
+			}
 		}
 
 		const devPort = Number(origin.split(':').pop());
-		const devArgs = appFramework === 'next'
-			? `--hostname ${host} --port ${devPort}`
-			: `--host ${host} --port ${devPort} --strictPort`;
+		const devArgs = supportsPortArgs(appFramework)
+			? (appFramework === 'next'
+				? `--hostname ${host} --port ${devPort}`
+				: (appFramework === 'astro'
+					? `--host ${host} --port ${devPort}`
+					: `--host ${host} --port ${devPort} --strictPort`))
+			: undefined;
 
-		const devCommand = pkgManager === 'pnpm'
-			? `pnpm dev -- ${devArgs}`
-			: pkgManager === 'yarn'
-				? `yarn dev -- ${devArgs}`
-				: `npm run dev -- ${devArgs}`;
+		const runScript = (scriptName: 'dev' | 'start', args?: string): string => {
+			if (!args || !args.trim()) {
+				if (pkgManager === 'pnpm') return `pnpm ${scriptName}`;
+				if (pkgManager === 'yarn') return `yarn ${scriptName}`;
+				return scriptName === 'start' ? 'npm start' : `npm run ${scriptName}`;
+			}
+			if (pkgManager === 'pnpm') return `pnpm ${scriptName} -- ${args}`;
+			if (pkgManager === 'yarn') return `yarn ${scriptName} -- ${args}`;
+			return scriptName === 'start' ? `npm start -- ${args}` : `npm run ${scriptName} -- ${args}`;
+		};
+
+		const devCommand = runScript(appDevScript, devArgs);
 
 		if (launchMode === 'external') {
 			const launched = startDetachedDevServerWindows({
@@ -676,11 +991,13 @@ export default function liveUiEditorBabelPlugin(babel) {
 			term.sendText(devCommand, true);
 		} else {
 			// existing
-			const url = await vscode.window.showInputBox({
-				prompt: `Enter dev server URL (e.g. http://127.0.0.1:${appFramework === 'next' ? 3000 : 5173})`,
-				value: origin,
-				ignoreFocusOut: true,
-			});
+			const url = (qs?.quickStart && typeof qs.url === 'string' && qs.url.trim())
+				? qs.url.trim()
+				: await vscode.window.showInputBox({
+					prompt: `Enter dev server URL (e.g. http://127.0.0.1:${defaultPortForFramework(appFramework)})`,
+					value: origin,
+					ignoreFocusOut: true,
+				});
 			if (!url) return;
 			if (!isLocalhostUrl(url)) {
 				const confirm = await vscode.window.showWarningMessage(
@@ -728,7 +1045,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 			if (pick === 'Use existing URL') {
 				const url = await vscode.window.showInputBox({
-					prompt: `Enter dev server URL (e.g. http://127.0.0.1:${appFramework === 'next' ? 3000 : 5173})`,
+					prompt: `Enter dev server URL (e.g. http://127.0.0.1:${defaultPortForFramework(appFramework)})`,
 					value: origin,
 					ignoreFocusOut: true,
 				});
@@ -836,6 +1153,17 @@ export default function liveUiEditorBabelPlugin(babel) {
 				styleAdapterPref = saved;
 			}
 		}
+
+			// Quick Start overrides (welcome screen).
+			if (qs?.quickStart) {
+				if (qs.layoutApplyMode === 'off' || qs.layoutApplyMode === 'safe' || qs.layoutApplyMode === 'full') {
+					layoutApplyMode = qs.layoutApplyMode;
+				}
+				if (qs.styleAdapterPref === 'auto' || qs.styleAdapterPref === 'inline' || qs.styleAdapterPref === 'cssClass' || qs.styleAdapterPref === 'tailwind') {
+					styleAdapterPref = qs.styleAdapterPref;
+					if (stylePrefKey) void context.workspaceState.update(stylePrefKey, styleAdapterPref);
+				}
+			}
 		const resolveAppModeFileIdToUri = (fileId: string): vscode.Uri | undefined => {
 			const u = resolveFileIdToUriAppMode(fileId, appRoot!);
 			if (!u) {
@@ -1321,20 +1649,6 @@ export default function liveUiEditorBabelPlugin(babel) {
 						return;
 					}
 
-					const pm = pkgManager;
-					const scriptToCmd = (scriptName: string): string => {
-						if (pm === 'pnpm') return `pnpm ${scriptName}`;
-						if (pm === 'yarn') return `yarn ${scriptName}`;
-						return `npm run ${scriptName}`;
-					};
-					const runBackendCommand = (commandLine: string): void => {
-						const termName = 'Live UI App Mode: Backend';
-						let term = vscode.window.terminals.find(t => t.name === termName);
-						if (!term) term = vscode.window.createTerminal({ name: termName, cwd: appRoot.fsPath });
-						term.show(true);
-						term.sendText(commandLine, true);
-					};
-
 					// One-click behavior: if we already know how to start the backend, just run it.
 					if (backendPref) {
 						const cmd = backendPref.kind === 'script' ? scriptToCmd(backendPref.name) : backendPref.commandLine;
@@ -1433,6 +1747,11 @@ export default function liveUiEditorBabelPlugin(babel) {
 				if (message.command === 'fixTargeting') {
 					// Alias for enableStableIds, but also guides the user to reselect after reload.
 					try {
+						if (!(appFramework === 'next' || appFramework === 'vite')) {
+							vscode.window.showInformationMessage('Live UI Editor: Stable IDs auto-enable is currently supported for Vite and Next.js only.');
+							try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false, message: 'Unsupported framework for Stable IDs automation.' }); } catch {}
+							return;
+						}
 						const confirm = await vscode.window.showWarningMessage(
 							appFramework === 'next'
 								? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
@@ -1465,6 +1784,11 @@ export default function liveUiEditorBabelPlugin(babel) {
 				}
 				if (message.command === 'enableStableIds') {
 					try {
+						if (!(appFramework === 'next' || appFramework === 'vite')) {
+							vscode.window.showInformationMessage('Live UI Editor: Stable IDs auto-enable is currently supported for Vite and Next.js only.');
+							try { created.webview.postMessage({ command: 'appModeStableIdsResult', ok: false, message: 'Unsupported framework for Stable IDs automation.' }); } catch {}
+							return;
+						}
 						const confirm = await vscode.window.showWarningMessage(
 							appFramework === 'next'
 								? 'Live UI Editor can enable Stable IDs for Next.js by adding a dev-only Babel config + plugin file. This makes targeting reliable. Proceed? (Note: Next will use Babel instead of SWC in dev.)'
@@ -1853,7 +2177,48 @@ export default function liveUiEditorBabelPlugin(babel) {
 		}
 
 		// Create the initial panel.
-		await createAppModePanel();
+		const created = await createAppModePanel();
+		// Quick Start option: auto-start backend server (best-effort, non-interactive).
+		if (qs?.quickStart && qs.startBackend) {
+			try {
+				if (!appRoot) return;
+				if (backendPref) {
+					const cmd = backendPref.kind === 'script' ? scriptToCmd(backendPref.name) : backendPref.commandLine;
+					runBackendCommand(cmd);
+					try { created.webview.postMessage({ command: 'appModeHint', text: 'Starting backend server in integrated terminal…' }); } catch {}
+					return;
+				}
+
+				const pkgJsonUri = vscode.Uri.joinPath(appRoot, 'package.json');
+				let pkg: any;
+				try {
+					pkg = JSON.parse(await readUtf8(pkgJsonUri));
+				} catch {
+					return;
+				}
+				const scripts: Record<string, string> = (pkg && typeof pkg === 'object' && pkg.scripts && typeof pkg.scripts === 'object')
+					? pkg.scripts
+					: {};
+				const preferred = [
+					'dev:backend', 'dev:api', 'dev:server',
+					'backend', 'api', 'server',
+					'start:backend', 'start:api', 'start:server',
+					'dev:all', 'dev:fullstack',
+				];
+				const first = preferred.find(k => typeof scripts[k] === 'string' && scripts[k].trim().length > 0);
+				if (!first) {
+					try { created.webview.postMessage({ command: 'appModeHint', text: 'Backend auto-start requested, but no backend script was detected. Use “Start backend” in App Mode if needed.' }); } catch {}
+					return;
+				}
+
+				backendPref = { kind: 'script', name: first };
+				if (backendPrefKey) void context.workspaceState.update(backendPrefKey, backendPref);
+				runBackendCommand(scriptToCmd(first));
+				try { created.webview.postMessage({ command: 'appModeHint', text: `Starting backend: ${first}` }); } catch {}
+			} catch (err) {
+				output.appendLine(`[appMode:autoStartBackend:error] ${String(err)}`);
+			}
+		}
 	});
 
 	context.subscriptions.push(disposable);

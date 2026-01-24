@@ -15,9 +15,118 @@ export type SelectedElement = {
 		type?: string;
 		text?: string;
 	};
+	ancestors?: Array<{ tagName: string; classList?: string[] }>;
+	selectionHints?: {
+		isScrollContainer?: boolean;
+		isInsideScroll?: boolean;
+		isRepeatedItem?: boolean;
+		responsiveContainer?: boolean;
+		scrollContainer?: { tagName: string; classList?: string[] } | null;
+		itemRoot?: { tagName: string; classList?: string[] } | null;
+	};
 	inlineStyle?: string;
 	computedStyle?: Record<string, string>;
 };
+
+type PendingApplyScope = {
+	key: string;
+	patch: Record<string, string>;
+	choices: Array<{ id: 'element' | 'allElements' | 'itemRoots' | 'scrollContainer'; label: string; selector?: string }>;
+};
+
+function isStableClassName(raw: string): boolean {
+	const c = raw.trim();
+	if (!c) return false;
+	// Don't attempt to match Tailwind arbitrary variants or complex selectors.
+	if (c.includes(':') || c.includes('[') || c.includes(']') || c.includes('/') || c.includes('(') || c.includes(')')) return false;
+	// Avoid obviously hashed / generated classes.
+	if (c.length > 32) return false;
+	if (/[A-Fa-f0-9]{8,}/.test(c)) return false;
+	return /^[a-zA-Z0-9_-]+$/.test(c);
+}
+
+function pickStableClasses(classList: string[] | undefined, max: number): string[] {
+	return (classList ?? [])
+		.map(c => c.trim())
+		.filter(isStableClassName)
+		.slice(0, max);
+}
+
+function buildScopedCssSelectorFromSelected(selected: SelectedElement): string | undefined {
+	const tag = selected.elementContext?.tagName?.toLowerCase();
+	if (!tag) return;
+	const id = selected.elementContext?.id?.trim();
+	if (id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
+		return `${tag}#${id}`;
+	}
+
+	const leafClasses = pickStableClasses(selected.elementContext?.classList, 3);
+	const leafSel = leafClasses.length ? `${tag}.${leafClasses.join('.')}` : tag;
+
+	// If App Mode provided the closest scroll container, prefer that as the scope.
+	const sc = selected.selectionHints?.scrollContainer;
+	if (sc && typeof sc === 'object') {
+		const scTag = (sc.tagName || '').toLowerCase();
+		const scClasses = pickStableClasses(sc.classList, 2);
+		if (scTag && scClasses.length > 0) {
+			return `${scTag}.${scClasses.join('.')} ${leafSel}`;
+		}
+	}
+
+	// Prefer scoping to the nearest useful ancestor so we don't match across the whole page.
+	// Only add a single ancestor scope to keep selectors resilient.
+	const ancestors = selected.ancestors ?? [];
+	for (const a of ancestors) {
+		const aTag = (a.tagName || '').toLowerCase();
+		if (!aTag) continue;
+		const aClasses = pickStableClasses(a.classList, 2);
+		if (aClasses.length === 0) continue;
+		return `${aTag}.${aClasses.join('.')} ${leafSel}`;
+	}
+
+	return leafSel;
+}
+
+function parseScopeChoice(prompt: string): '1' | '2' | '3' | '4' | undefined {
+	const p = prompt.toLowerCase().trim();
+	if (/^\s*1\s*$/.test(p)) return '1';
+	if (/^\s*2\s*$/.test(p)) return '2';
+	if (/^\s*3\s*$/.test(p)) return '3';
+	if (/^\s*4\s*$/.test(p)) return '4';
+	if (/\b(this|just this|only this|selected)\b/.test(p)) return '1';
+	if (/\b(all|every|everything|entire list|whole list|all of them)\b/.test(p)) return '2';
+	if (/\b(item|card)\b/.test(p)) return '3';
+	if (/\b(container|scroll)\b/.test(p)) return '4';
+	return;
+}
+
+function buildSelectorFromNodeSummary(node: { tagName: string; classList?: string[] } | null | undefined): string | undefined {
+	if (!node) return;
+	const tag = (node.tagName || '').toLowerCase().trim();
+	if (!tag) return;
+	const classes = pickStableClasses(node.classList, 2);
+	return classes.length ? `${tag}.${classes.join('.')}` : tag;
+}
+
+function findLikelyItemRoot(selected: SelectedElement): { tagName: string; classList?: string[] } | undefined {
+	const hinted = selected.selectionHints?.itemRoot;
+	if (hinted && typeof hinted === 'object' && hinted.tagName) {
+		return { tagName: hinted.tagName, classList: hinted.classList };
+	}
+	const sc = selected.selectionHints?.scrollContainer;
+	const scTag = (sc && typeof sc === 'object') ? (sc.tagName || '').toLowerCase() : '';
+	const scClasses = (sc && typeof sc === 'object') ? (sc.classList ?? []).join(' ') : '';
+	for (const a of (selected.ancestors ?? [])) {
+		const tag = (a.tagName || '').toLowerCase();
+		if (!tag) continue;
+		const stable = pickStableClasses(a.classList, 2);
+		if (stable.length === 0) continue;
+		// Don't pick the scroll container itself as the "item" root.
+		if (scTag && tag === scTag && scClasses && (a.classList ?? []).join(' ') === scClasses) continue;
+		return { tagName: tag, classList: stable };
+	}
+	return;
+}
 
 type ApplyResult = {
 	changed: boolean;
@@ -28,6 +137,12 @@ type InsertPosition = 'before' | 'after' | 'inside';
 type AddIntent =
 	| { kind: 'add'; position: InsertPosition; markup: string; label: string }
 	| { kind: 'wrapBox'; lineUnder: boolean };
+
+type DataDrivenIntent = {
+	kind: 'scrollCards';
+	count: number;
+	axis: 'x' | 'y';
+};
 
 function stripCodeFences(s: string): string {
 	const trimmed = s.trim();
@@ -58,6 +173,72 @@ function extractQuotedText(prompt: string): string | undefined {
 	const m2 = prompt.match(/'([^']+)'/);
 	if (m2?.[1]) return m2[1];
 	return;
+}
+
+function parseDataDrivenIntent(prompt: string): DataDrivenIntent | undefined {
+	const p = prompt.toLowerCase();
+	if (!/(scroll|scrollbox|scroll box|carousel|list|cards?)/.test(p)) return;
+	if (!/(card|cards)/.test(p)) return;
+	const n = p.match(/\b(\d{1,3})\b/);
+	const count = n?.[1] ? Math.max(1, Math.min(50, Number(n[1]))) : 10;
+	const axis: 'x' | 'y' = /(horizontal|row|carousel)/.test(p) ? 'x' : 'y';
+	return { kind: 'scrollCards', count, axis };
+}
+
+function inferDataDrivenInsertPosition(prompt: string, selected: SelectedElement): InsertPosition {
+	const p = prompt.toLowerCase();
+	const wantsInside = /\b(in it|inside|within|into)\b/.test(p);
+	const wantsAfter = /\b(below|after|under)\b/.test(p);
+	const tag = (selected.elementContext?.tagName || '').toLowerCase();
+	const isContainerTag = ['div', 'section', 'main', 'article', 'aside', 'nav', 'header', 'footer', 'body'].includes(tag);
+	if (wantsInside) return isContainerTag ? 'inside' : 'after';
+	if (wantsAfter) return 'after';
+	// Default: prefer inserting inside containers so content stays constrained.
+	return isContainerTag ? 'inside' : 'after';
+}
+
+function buildJsxScrollCardsMarkup(args: { count: number; axis: 'x' | 'y'; varName: string }): string {
+	const containerStyle = args.axis === 'x'
+		? `{ display: 'flex', flexDirection: 'row', gap: '12px', overflowX: 'auto', padding: '4px', WebkitOverflowScrolling: 'touch' }`
+		: `{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', maxHeight: '420px', padding: '4px' }`;
+	const cardStyle = `{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', padding: '12px', background: 'rgba(255,255,255,0.06)' }`;
+	return (
+		`<div data-live-ui-group-root="1" style=${containerStyle}>\n` +
+		`  {${args.varName}.map((item) => (\n` +
+		`    <div key={item.id} style=${cardStyle}>\n` +
+		`      <div style={{ fontWeight: '600' }}>{item.title}</div>\n` +
+		`      <div style={{ opacity: '0.8', fontSize: '14px' }}>{item.subtitle}</div>\n` +
+		`    </div>\n` +
+		`  ))}\n` +
+		`</div>`
+	);
+}
+
+function buildHtmlScrollCardsMarkup(args: { count: number; axis: 'x' | 'y'; includeAuthors?: boolean }): string {
+	const shellStyle = [
+		'width: 100%','box-sizing: border-box','margin-top: 16px',
+		'border: 1px solid rgba(255,255,255,0.18)','border-radius: 14px',
+		'background: rgba(0,0,0,0.18)','backdrop-filter: blur(10px)','padding: 12px'
+	].join('; ');
+	const containerStyle = args.axis === 'x'
+		? `${shellStyle}; display:flex; flex-direction:row; gap:12px; overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch;`
+		: `${shellStyle}; display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:180px;`;
+	const cardStyle = [
+		'flex: 0 0 auto','min-width: 220px',
+		'border:1px solid rgba(255,255,255,0.14)','border-radius:12px',
+		'padding:12px','background:rgba(255,255,255,0.06)','color:#E5E7EB'
+	].join('; ');
+	const authors = [
+		'Ava Johnson','Noah Kim','Mia Patel','Liam Garcia','Sophia Chen',
+		'Elijah Brown','Isabella Nguyen','James Wilson','Olivia Martinez','Ethan Davis'
+	];
+	const cards = Array.from({ length: args.count }, (_, i) => {
+		const idx = i + 1;
+		const author = authors[i % authors.length];
+		const subtitle = args.includeAuthors ? `By ${author}` : 'Description';
+		return `<div style="${cardStyle}"><div style="font-weight:600;">Card ${idx}</div><div style="opacity:0.8; font-size:14px;">${subtitle}</div></div>`;
+	}).join('\n');
+	return `<div data-live-ui-group-root="1" style="${containerStyle}">\n${cards}\n</div>`;
 }
 
 function escapeHtmlText(s: string): string {
@@ -856,6 +1037,7 @@ export function registerUiWizard(
 	// MVP multi-turn state (in-memory): last suggested styles + last previewed style.
 	let lastSuggestions: Array<{ name: string; description: string; style: Record<string, string> }> = [];
 	let lastPreview: { style: Record<string, string>; name?: string } | undefined;
+	let pendingApplyScope: PendingApplyScope | undefined;
 
 	// Keep a small amount of "what are we editing" state so follow-ups like
 	// "try a different color" keep affecting the same thing.
@@ -1083,10 +1265,145 @@ export function registerUiWizard(
 				lastFocus = undefined;
 				lastPatchKeys = [];
 				lastPreview = undefined;
+				pendingApplyScope = undefined;
 			}
 		}
 
+		// If we previously asked “apply to one vs all”, handle that choice now.
+		if (pendingApplyScope && pendingApplyScope.key === `${selected.uri.toString()}:${selected.line}`) {
+			const n = parseScopeChoice(request.prompt);
+			const choice = n
+				? pendingApplyScope.choices[Number(n) - 1]
+				: undefined;
+			if (!choice) {
+				const lines = pendingApplyScope.choices.map((c, i) => {
+					const sel = c.selector ? ` (\`${c.selector}\`)` : '';
+					return `${i + 1}) ${c.label}${sel}`;
+				});
+				stream.markdown(`Reply with a number:\n\n${lines.join('\n')}`);
+				return;
+			}
+
+			await deps.clearPreviewIfOpen();
+			lastPreview = undefined;
+
+			if (choice.id === 'element') {
+				await pushUndoSnapshot('apply style to selected element', [selected.uri]);
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, pendingApplyScope.patch);
+				stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
+				if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+				pendingApplyScope = undefined;
+				return;
+			}
+
+			// Anything else uses selector targeting.
+			if (!choice.selector) {
+				stream.markdown('Could not build a safe selector for that scope. Applying only to the selected element.');
+				await pushUndoSnapshot('apply style to selected element', [selected.uri]);
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, pendingApplyScope.patch);
+				stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
+				if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+				pendingApplyScope = undefined;
+				return;
+			}
+
+			let targets: Array<{ file: string; line: number }> = [];
+			try {
+				targets = await deps.requestTargetsIfOpen(choice.selector);
+			} catch (err) {
+				stream.markdown(`Couldn't find matching targets in the Live UI view (${String(err)}). Applying only to the selected element instead.`);
+				await pushUndoSnapshot('apply style to selected element', [selected.uri]);
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, pendingApplyScope.patch);
+				stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
+				if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+				pendingApplyScope = undefined;
+				return;
+			}
+			if (targets.length === 0) {
+				stream.markdown('I couldn\'t enumerate matching targets in the Live UI view, so I\'m applying only to the selected element.');
+				await pushUndoSnapshot('apply style to selected element', [selected.uri]);
+				const changed = await deps.codeModifier.updateStyle(selected.uri, selected.line, pendingApplyScope.patch);
+				stream.markdown(changed ? 'Applied to the selected element.' : 'No change needed.');
+				if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+				pendingApplyScope = undefined;
+				return;
+			}
+
+			const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+			const byUri = new Map<string, { uri: vscode.Uri; lines: number[] }>();
+			for (const t of targets) {
+				const raw = String(t.file ?? '').trim();
+				let uri: vscode.Uri | undefined;
+				if (/^file:\/\//i.test(raw)) uri = vscode.Uri.parse(raw);
+				else if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('\\\\')) uri = vscode.Uri.file(raw);
+				else {
+					const normalized = raw.replace(/^\.[\\/]/, '').replace(/\\/g, '/');
+					uri = workspaceRoot ? vscode.Uri.joinPath(workspaceRoot, normalized) : undefined;
+				}
+				if (!uri) continue;
+				const key = uri.toString();
+				const entry = byUri.get(key) ?? { uri, lines: [] };
+				entry.lines.push(t.line);
+				byUri.set(key, entry);
+			}
+
+			const uniqueUris = Array.from(byUri.values()).map(v => v.uri);
+			await pushUndoSnapshot(`apply style to ${targets.length} element(s)`, uniqueUris);
+			let anyChanged = false;
+			for (const entry of byUri.values()) {
+				const uniqueLines = Array.from(new Set(entry.lines)).sort((a, b) => a - b);
+				for (const line of uniqueLines) {
+					try {
+						const changed = await deps.codeModifier.updateStyle(entry.uri, line, pendingApplyScope.patch);
+						if (changed) anyChanged = true;
+					} catch {
+						// Ignore failed targets; we'll still apply to others.
+					}
+				}
+			}
+
+			stream.markdown(anyChanged ? `Applied to ${targets.length} element(s) in the current view.` : 'No change needed.');
+			if (anyChanged) await deps.refreshWebviewIfOpen(selected.uri);
+			pendingApplyScope = undefined;
+			return;
+		}
+
 		try {
+			// Data-driven builder: "scroll box with 10 cards".
+			const dataIntent = parseDataDrivenIntent(request.prompt);
+			if (dataIntent) {
+				await deps.clearPreviewIfOpen();
+				lastPreview = undefined;
+				const ext = selected.uri.path.toLowerCase();
+				const varName = 'items';
+					const insertPos = inferDataDrivenInsertPosition(request.prompt, selected);
+					const includeAuthors = /\bauthor(s)?\b/i.test(request.prompt);
+				if (ext.endsWith('.tsx') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.js')) {
+					await pushUndoSnapshot(`insert scroll cards (${dataIntent.count})`, [selected.uri]);
+					// Ensure we have a data array in the nearest component.
+					await deps.codeModifier.ensureItemsArrayInNearestComponent(selected.uri, selected.line, { varName, count: dataIntent.count });
+					const markup = buildJsxScrollCardsMarkup({ count: dataIntent.count, axis: dataIntent.axis, varName });
+						const changed = await deps.codeModifier.insertElement(selected.uri, selected.line, insertPos, markup);
+					stream.markdown(changed
+						? `Added a ${dataIntent.axis === 'x' ? 'horizontal' : 'vertical'} scroll box rendering ${dataIntent.count} cards from \`${varName}\`.`
+						: 'No change applied.');
+					if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+					return;
+				}
+
+				// HTML fallback: render repeated cards (static).
+				if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+					await pushUndoSnapshot(`insert scroll cards (${dataIntent.count})`, [selected.uri]);
+					const markup = buildHtmlScrollCardsMarkup({ count: dataIntent.count, axis: dataIntent.axis, includeAuthors });
+					const changed = await deps.codeModifier.insertElement(selected.uri, selected.line, insertPos, markup);
+					stream.markdown(changed
+						? `Added a ${dataIntent.axis === 'x' ? 'horizontal' : 'vertical'} scroll box with ${dataIntent.count} static cards.`
+						: 'No change applied.');
+					if (changed) await deps.refreshWebviewIfOpen(selected.uri);
+					return;
+				}
+			}
+
 			// Add/wrap elements (Phase 6-ish): deterministic edits that change structure.
 			const addIntent = parseAddIntent(request.prompt, selected);
 			if (addIntent) {
@@ -1243,14 +1560,14 @@ export function registerUiWizard(
 						stream.markdown('Tell me what to apply to (e.g. “apply to all buttons”, “apply to all text”, “apply to all headings”).');
 						return;
 					}
-					// If the user says "apply this/current style", prefer the selected element's current computed style.
 					let sourcePatch: Record<string, string> = patch;
+					// If the user says "apply this/current style", prefer the selected element's current computed style.
 					if (hasIntentApplyCurrentStyle(request.prompt) && selected.computedStyle && Object.keys(selected.computedStyle).length > 0) {
 						sourcePatch = selected.computedStyle;
-						// If they explicitly said "text style", avoid copying backgrounds/borders/padding.
-						if (/\btext\s*style\b/i.test(request.prompt)) {
-							sourcePatch = filterPatchForTextStyleOnly(sourcePatch);
-						}
+					}
+					// If they explicitly said "text style", avoid copying backgrounds/borders/padding.
+					if (/\btext\s*style\b/i.test(request.prompt)) {
+						sourcePatch = filterPatchForTextStyleOnly(sourcePatch);
 					}
 					if (target.kind === 'text' && !wantsBulkTextSizing(request.prompt)) {
 						sourcePatch = stripTextSizing(sourcePatch);
@@ -1262,6 +1579,50 @@ export function registerUiWizard(
 					await deps.refreshWebviewIfOpen(selected.uri);
 					stream.markdown(changed ? `Applied to all ${target.label} in this file.` : 'No change needed.');
 					return;
+				}
+
+				// Repeated-item safety: if the selection looks like a list/card item, ask whether to
+				// apply to element vs item vs scroll container.
+				if (selected.selectionHints?.isRepeatedItem || selected.selectionHints?.isInsideScroll) {
+					const explicit = parseScopeChoice(request.prompt);
+					if (!explicit) {
+						const choices: PendingApplyScope['choices'] = [];
+						choices.push({ id: 'element', label: 'Selected element' });
+
+						const leafSelector = buildScopedCssSelectorFromSelected(selected);
+						if (leafSelector && selected.selectionHints?.isRepeatedItem) {
+							choices.push({ id: 'allElements', label: 'All matching elements (in current view)', selector: leafSelector });
+						}
+
+						const itemRoot = findLikelyItemRoot(selected);
+						const scSel = buildSelectorFromNodeSummary(selected.selectionHints?.scrollContainer ?? null);
+						const itemSelRaw = buildSelectorFromNodeSummary(itemRoot);
+						const itemSel = (itemSelRaw && scSel) ? `${scSel} ${itemSelRaw}` : itemSelRaw;
+						if (itemSel) {
+							choices.push({ id: 'itemRoots', label: 'This item/card (root)', selector: itemSel });
+						}
+
+						// If the selected element itself is a scroll container, let them target it.
+						let containerSel = scSel;
+						if (!containerSel && selected.selectionHints?.isScrollContainer) {
+							containerSel = buildScopedCssSelectorFromSelected(selected);
+						}
+						if (containerSel) {
+							choices.push({ id: 'scrollContainer', label: 'Scroll container', selector: containerSel });
+						}
+
+						if (choices.length >= 2) {
+							pendingApplyScope = { key: `${selected.uri.toString()}:${selected.line}`, patch, choices };
+							const lines = choices.map((c, i) => {
+								const sel = c.selector ? ` (\`${c.selector}\`)` : '';
+								return `${i + 1}) ${c.label}${sel}`;
+							});
+							stream.markdown(
+								`Choose scope for this apply:\n\n${lines.join('\n')}\n\nReply with a number.`
+							);
+							return;
+						}
+					}
 				}
 
 				await pushUndoSnapshot('apply style to selected element', [selected.uri]);

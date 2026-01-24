@@ -24,8 +24,9 @@ dist/**/*.map
 last convo.md
 LIVE_UI_EDITOR_V2_PLAN.md
 VSCode Live UI Editor — Master Proj.md
-sample-ui.html
 test-output.html
+TRACKING_REBUILD_ROADMAP.md
+samples/**
 
 # Local VS Code workspace files
 *.code-workspace

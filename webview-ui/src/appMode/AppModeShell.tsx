@@ -259,7 +259,9 @@ export default function AppModeShell() {
         return;
       }
       if (msg.command === 'requestTargets') {
-        vscode.postMessage({ command: 'targetsList', requestId: msg.requestId, targets: [] });
+        // Ask the injected iframe script to enumerate matching DOM nodes and map them back to source.
+        // It will reply via the iframe->webview bridge as { command: 'targetsList', requestId, targets }.
+        postToIframe({ type: 'live-ui-editor:requestTargets', requestId: msg.requestId, selector: msg.selector });
         return;
       }
       if (msg.command === 'appModeApplyReport') {

@@ -4,6 +4,17 @@ This is a starter Vite plugin that injects a stable `data-lui` attribute into JS
 
 The extension’s App Mode injected client can use `data-lui` to derive `file/line/column` without relying on React `_debugSource`, and the extension can apply edits by matching `data-lui` in the AST.
 
+## When do I need this?
+
+In most cases you don’t.
+
+The VS Code extension has a one-click **Enable Stable IDs** flow in App Mode that writes a dev-only Babel plugin and patches Vite/Next config for you.
+
+This starter plugin exists for cases where:
+
+- you prefer a Vite plugin approach, or
+- you want to experiment with Stable IDs without using the extension’s auto-patching.
+
 ## Install (in your Vite app)
 
 From your app repo:
