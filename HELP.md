@@ -8,6 +8,18 @@
 4. Click elements in the preview to select them.
 5. Make edits, then **Apply to Code**.
 
+## UI Wizard (Chat)
+
+UI Wizard is a VS Code Chat participant (`@ui-wizard`) that can edit the currently selected element.
+
+1. In App Mode, stay in **Edit** mode and click an element.
+2. Open VS Code Chat (View → Chat).
+3. Try:
+
+- `@ui-wizard commands`
+- `@ui-wizard width 240`
+- `@ui-wizard move right 20`
+
 ### Targeting (Stable IDs)
 - If **Identity: Stable**, edits are safest.
 - If not stable, click **Enable Stable IDs** and follow the prompt.

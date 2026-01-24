@@ -182,6 +182,29 @@ If your app also needs a separate backend/API server (for navigation, auth, data
 
 If UI Wizard says there is no selection, make sure you’re in **Edit** and click an element.
 
+### 2.5) UI Wizard (Chat)
+
+Live UI Editor includes a Chat participant named **UI Wizard** (`ui-wizard`) that can edit the currently selected element using plain language.
+
+How to use it:
+
+1. In App Mode, make sure you’re in **Edit** and click an element (so it becomes the current selection).
+2. Open VS Code Chat (View → Chat).
+3. Type `@ui-wizard` and describe the change.
+
+Examples:
+
+- `@ui-wizard width 240`
+- `@ui-wizard height 48`
+- `@ui-wizard move right 20`
+- `@ui-wizard x 40 y 12`
+
+Help:
+
+- `@ui-wizard commands`
+- `@ui-wizard commands for layout`
+- `@ui-wizard commands for bulk`
+
 ### 3) Fix “Identity: Unmapped” (highly recommended)
 
 If the sidebar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
