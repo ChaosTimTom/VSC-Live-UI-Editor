@@ -1,0 +1,11 @@
+{
+  "name": "fixture-vue-cli-app",
+  "private": true,
+  "scripts": {
+    "dev": "vue-cli-service serve",
+    "serve": "vue-cli-service serve"
+  },
+  "dependencies": {
+    "@vue/cli-service": "^5.0.0"
+  }
+}

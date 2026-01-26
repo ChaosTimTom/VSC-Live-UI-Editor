@@ -1,0 +1,10 @@
+{
+  "name": "fixture-react-cosmos",
+  "private": true,
+  "scripts": {
+    "cosmos": "cosmos --port 5000"
+  },
+  "devDependencies": {
+    "react-cosmos": "^6.0.0"
+  }
+}

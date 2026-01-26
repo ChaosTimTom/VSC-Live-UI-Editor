@@ -1,57 +1,59 @@
-# Live UI Editor — Help
+# Live UI Editor — Help (Beginner-friendly)
 
-This document is meant to be beginner-friendly. It explains every part of the extension and the full flow from “I have a folder open” to “my changes are applied to code”.
+If you are new to VS Code, start here:
 
-If you’re completely new, start with **Welcome / Quick Start** below.
+- Step-by-step basics: [docs/help/getting-started.md](docs/help/getting-started.md)
+- Static HTML workflow: [docs/help/static-html-mode.md](docs/help/static-html-mode.md)
+- App Mode workflow: [docs/help/app-mode.md](docs/help/app-mode.md)
+- Common issues: [docs/help/troubleshooting.md](docs/help/troubleshooting.md)
+- Shortcuts: [docs/help/keyboard-shortcuts.md](docs/help/keyboard-shortcuts.md)
+
+This file is the “everything in one place” guide.
 
 ---
 
-## What Live UI Editor Does (In Plain English)
+## What Live UI Editor does (in plain English)
 
-Live UI Editor lets you visually click, drag, resize, and edit text in a live preview, then (when possible) writes those changes back into real files in your workspace.
+Live UI Editor lets you click UI elements in a preview, change text/styles/layout visually, and then (when possible) write those changes back into your real project files.
 
-There are two modes:
+There are two workflows:
 
-1) **Static HTML mode** (no dev server)
-   - You open an `.html` file.
-   - The extension renders it and lets you visually edit it.
-   - Changes are written directly into that HTML file.
+1) **Static HTML Mode** (no dev server)
+  - You open an `.html` file.
+  - Live UI Editor previews it.
+  - Changes are written directly into that same HTML file.
 
 2) **App Mode** (dev server)
-   - You run your real app (Vite / Next.js / etc.) and the extension loads it in an iframe.
-   - You visually edit the running UI.
-   - Changes are staged as **Pending** edits, then you click **Apply to Code**.
+  - You run your real app (Vite / Next.js / etc.).
+  - Live UI Editor loads it in a preview and adds an editor overlay.
+  - Changes are staged as **Pending** edits, then you click **Apply to Code** to write them.
 
 ---
 
-## Quick Start (Recommended)
+## Quick start (do this first)
 
-1. Open the folder for your site/app in VS Code.
-2. Press `Ctrl+Shift+P` → run **Live UI: Open**.
-3. You will see the **Welcome to Live UI Editor** screen.
-4. Choose:
-   - **Static HTML / No dev server** (best if you just have an `.html` file)
-   - **App Mode (dev server)** (best for React/Vite/Next)
-5. Click **Start**.
+1. Open your project folder: **File** → **Open Folder…**
+2. Open the Command Palette: `Ctrl+Shift+P`
+3. Run: **Live UI: Open**
+4. On the Welcome screen, pick a target from **Detected main** or **Other detected targets**
+5. Make a small edit and confirm the underlying file changes
 
-Tip: The Welcome screen includes a **Help / Troubleshooting** button and a one-click “Copy Copilot prompt” to help non-technical users start the correct dev server.
+Tip: If you don’t have a running app yet, pick an HTML entrypoint and start with Static HTML Mode.
 
 ---
 
-## Welcome / Quick Start Screen (Detailed)
+## Welcome / Quick Start screen (detailed)
 
 When you run **Live UI: Open**, the extension opens a Live UI panel. If nothing is loaded yet, you’ll see a Welcome screen.
 
-### “Detected” box
+### “Detected main” and “Other detected targets”
 
-This is best-effort guidance. It may show:
+Live UI Editor tries to find *all* reasonable things you could edit in your repo.
 
-- Detected apps (for example: Vite / Next)
-- A suggested local URL (for example: `http://127.0.0.1:5173`)
-- Whether that URL “looks running”
-- Notes (for example: which commands to run)
+- **Detected main**: the best guess for “what you probably want”.
+- **Other detected targets**: other choices (apps, previews, HTML entrypoints).
 
-This is informational only; you still choose what to do.
+This is guidance only; you can pick any target.
 
 ### Option A: Static HTML / No dev server
 
@@ -61,7 +63,7 @@ Use this if:
 - You don’t have a dev server.
 - You want a simple visual editor for HTML.
 
-Buttons:
+Buttons you might see:
 
 - **Start (pick an HTML file)**: opens a file picker filtered to `.html`/`.htm`.
 - **Pick an HTML file…**: same idea; lets you choose any HTML file.
@@ -76,7 +78,7 @@ Use this if:
 - You can run `npm run dev` (or similar).
 - You want to edit your real app UI, not a static snapshot.
 
-Controls:
+Controls you might see:
 
 - **Connect**
   - **Start dev server (integrated terminal)**: runs the dev server in VS Code’s terminal.
@@ -104,11 +106,11 @@ Controls:
   - Opens quick help in the panel and links to this file.
 
 - **Copy Copilot prompt**
-  - Copies a “non-technical user” prompt tailored to the repo detection. Paste it into VS Code Copilot Chat.
+  - Copies a beginner-friendly prompt tailored to your repo. Paste it into VS Code Copilot Chat.
 
 ---
 
-## Static HTML Mode (No Dev Server)
+## Static HTML Mode (no dev server)
 
 ### What it’s for
 
@@ -116,8 +118,9 @@ Static HTML mode is a visual editor for HTML files. It does not run your app, an
 
 ### How to open an HTML file
 
-- Run **Live UI: Open** → choose **Static HTML / No dev server**.
-- Click **Start (pick an HTML file)** (or use the other options).
+1. Run **Live UI: Open**
+2. Choose **Static HTML / No dev server**
+3. Choose **Start (pick an HTML file)** (recommended)
 
 ### How selection works
 
@@ -149,7 +152,7 @@ Keyboard nudging:
 
 What gets written to code:
 
-- Static mode currently persists layout edits as style updates (for example `transform`, `width`, `height`) on the selected element.
+- Static mode persists edits directly into the HTML file (often as style updates on the selected element).
 
 ### Inline text editing
 
@@ -159,13 +162,13 @@ What gets written to code:
 - `Escape` cancels and restores the original text.
 - Clicking away (blur) also commits.
 
-Important limitation:
+Important note:
 
-- Text editing only persists deterministically when the target is source-mapped (so the extension knows exactly what to edit).
+- Text editing is most reliable when the selected element can be mapped to a clear source location.
 
 ---
 
-## App Mode (Dev Server)
+## App Mode (dev server)
 
 ### What it’s for
 
@@ -179,16 +182,11 @@ App Mode loads your real app (usually running locally) into a VS Code webview if
 
 ### Starting App Mode
 
-Recommended:
-
-1. Run **Live UI: Open**.
-2. Choose **App Mode (dev server)**.
-3. Choose a **Connect** option.
-4. Click **Start App Mode**.
-
-Direct:
-
-- Run **Live UI: Open (App Mode)**.
+1. Start your dev server in the terminal (common): `npm run dev`
+2. Run **Live UI: Open**
+3. Choose **App Mode (dev server)**
+4. Choose a Connect option (integrated / external / existing URL)
+5. Click **Start App Mode**
 
 ### Edit vs Browse mode
 
@@ -257,8 +255,8 @@ If your repo needs a separate backend server (API/auth/etc.), App Mode provides 
 It can:
 
 - Detect a likely script (`dev:api`, `dev:backend`, `server`, etc.)
-- Or run a custom command
-- Remember your choice per app root
+ - Or run a custom command
+ - Remember your choice per app root
 
 ### Mobile / responsive workflow
 
@@ -270,7 +268,9 @@ If your app is a Tauri-targeted UI, enabling **Tauri Shim** stubs the browser AP
 
 ---
 
-## UI Wizard (Chat Participant)
+---
+
+## UI Wizard (Chat participant)
 
 UI Wizard is a VS Code Chat participant named `@ui-wizard`. It edits the *currently selected* element.
 
@@ -329,7 +329,11 @@ Type one of these in VS Code Chat:
 
 ---
 
-## Troubleshooting (Common Problems)
+---
+
+## Troubleshooting (common problems)
+
+For a step-by-step troubleshooting page, see: [docs/help/troubleshooting.md](docs/help/troubleshooting.md)
 
 ### “Nothing happens when I run Live UI: Open”
 
@@ -368,7 +372,9 @@ Type one of these in VS Code Chat:
 
 ---
 
-## Manual Reliability Checklist (For Verifying Selection/Tracking)
+---
+
+## Manual reliability checklist (optional)
 
 This is a quick sanity checklist you can run on any HTML page:
 

@@ -4,6 +4,7 @@ import { DebugOverlay, type DebugStats } from './editor/debugOverlay';
 import type { SelectionModel } from './editor/types';
 import { hitTestAtPoint } from './editor/hitTest';
 import { getScrollParents } from './editor/scrollParents';
+import logo from '../../images/logo.png';
 
 type SourceLocator = { file: string; line: number; column?: number };
 
@@ -144,6 +145,13 @@ export default function App() {
   const [appLayoutApplyMode, setAppLayoutApplyMode] = useState<'off' | 'safe' | 'full'>('safe');
   const [appStartBackend, setAppStartBackend] = useState<boolean>(false);
 
+  // Monorepo UX: pick the app/preview target before running anything.
+  const [detectedPickKind, setDetectedPickKind] = useState<'app' | 'preview' | 'none'>('none');
+  const [detectedAppRoot, setDetectedAppRoot] = useState<string>('');
+  const [detectedPreviewId, setDetectedPreviewId] = useState<string>('');
+  const [detectedUrl, setDetectedUrl] = useState<string>('');
+  const detectedUrlDefaultRef = useRef<string>('');
+
   const theme = useMemo(() => {
     return {
       fg: 'var(--vscode-foreground, #111)',
@@ -158,6 +166,165 @@ export default function App() {
       inputBorder: 'var(--vscode-input-border, rgba(127,127,127,0.4))',
     };
   }, []);
+
+  const [isDark, setIsDark] = useState<boolean>(true);
+  useEffect(() => {
+    const parseRgb = (v: string): { r: number; g: number; b: number } | null => {
+      const m = v.match(/rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+      if (!m) return null;
+      return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]) };
+    };
+    const parseHex = (v: string): { r: number; g: number; b: number } | null => {
+      const s = v.trim();
+      const m = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+      if (!m) return null;
+      const hex = m[1].length === 3
+        ? m[1].split('').map(ch => ch + ch).join('')
+        : m[1];
+      const n = Number.parseInt(hex, 16);
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    };
+    const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
+      const srgb = [r, g, b].map(v => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+    };
+
+    const bg = getComputedStyle(document.documentElement)
+      .getPropertyValue('--vscode-editor-background')
+      .trim();
+    const rgb = parseHex(bg) ?? parseRgb(bg);
+    if (!rgb) return;
+    setIsDark(luminance(rgb) < 0.5);
+  }, []);
+
+  const brand = useMemo(() => {
+    return {
+      teal: '#2dd4bf',
+      purple: '#7c3aed',
+      pink: '#fb7185',
+    };
+  }, []);
+
+  const ui = useMemo(() => {
+    // Teal-tinted borders to match the new brand palette (instead of neutral gray).
+    const border = isDark ? 'rgba(45,212,191,0.30)' : 'rgba(20,184,166,0.32)';
+    const surface = isDark ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.03)';
+    const surfaceStrong = isDark ? 'rgba(255,255,255,0.075)' : 'rgba(0,0,0,0.045)';
+    const panel = isDark ? 'rgba(10,10,18,0.44)' : 'rgba(255,255,255,0.78)';
+    const card = isDark ? 'rgba(10,10,18,0.56)' : 'rgba(255,255,255,0.86)';
+    const gradientStrong = `linear-gradient(135deg, ${brand.teal} 0%, ${brand.purple} 55%, ${brand.pink} 100%)`;
+    const gradientSoft = `linear-gradient(135deg, rgba(45,212,191,0.28) 0%, rgba(124,58,237,0.22) 55%, rgba(251,113,133,0.26) 100%)`;
+    const glow = isDark
+      ? '0 18px 55px rgba(0,0,0,0.55)'
+      : '0 18px 55px rgba(0,0,0,0.14)';
+
+    return {
+      border,
+      surface,
+      surfaceStrong,
+      panel,
+      card,
+      glow,
+      gradientStrong,
+      gradientSoft,
+    };
+  }, [brand.pink, brand.purple, brand.teal, isDark]);
+
+  const toggleButtonStyle = (active: boolean): React.CSSProperties => {
+    return {
+      padding: '10px 14px',
+      borderRadius: 12,
+      border: `1px solid ${ui.border}`,
+      background: active ? ui.gradientSoft : ui.surface,
+      color: theme.fg,
+      fontWeight: 800,
+      cursor: 'pointer',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+    };
+  };
+
+  const controlButtonStyle = (active?: boolean): React.CSSProperties => {
+    return {
+      padding: '6px 10px',
+      borderRadius: 10,
+      border: `1px solid ${ui.border}`,
+      color: theme.fg,
+      background: active ? ui.gradientSoft : ui.surface,
+      cursor: 'pointer',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+    };
+  };
+
+  const primaryButtonStyle: React.CSSProperties = {
+    padding: '12px 16px',
+    borderRadius: 12,
+    border: 'none',
+    backgroundImage: ui.gradientStrong,
+    color: '#ffffff',
+    fontWeight: 900,
+    cursor: 'pointer',
+    boxShadow: ui.glow,
+    textShadow: '0 1px 0 rgba(0,0,0,0.25)',
+  };
+
+  const fieldStyle: React.CSSProperties = {
+    padding: '8px 10px',
+    borderRadius: 10,
+    border: `1px solid ${ui.border}`,
+    background: ui.surfaceStrong,
+    color: theme.inputFg,
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+  };
+
+  const selectStyle: React.CSSProperties = {
+    ...fieldStyle,
+    cursor: 'pointer',
+  };
+
+  const textInputStyle: React.CSSProperties = {
+    ...fieldStyle,
+  };
+
+  const defaultPortForFramework = (fw: unknown): number => {
+    switch (fw) {
+      case 'next':
+      case 'cra':
+      case 'nuxt':
+      case 'remix':
+        return 3000;
+      case 'vite':
+      case 'sveltekit':
+        return 5173;
+      case 'astro':
+        return 4321;
+      case 'angular':
+        return 4200;
+      case 'vue':
+        return 8080;
+      case 'gatsby':
+        return 8000;
+      default:
+        return 3000;
+    }
+  };
+
+  const buildDefaultUrlForFramework = (fw: unknown): string => {
+    const host = '127.0.0.1';
+    return `http://${host}:${defaultPortForFramework(fw)}`;
+  };
+
+  const buildDefaultUrlForPreviewTarget = (t: { defaultPort?: number; urlPath?: string } | undefined): string => {
+    const host = '127.0.0.1';
+    const port = (t && typeof t.defaultPort === 'number' && Number.isFinite(t.defaultPort) && t.defaultPort > 0) ? t.defaultPort : 3000;
+    const path = (t && typeof t.urlPath === 'string' && t.urlPath.trim().startsWith('/')) ? t.urlPath.trim() : '';
+    return `http://${host}:${port}${path}`;
+  };
   const selectedElRef = useRef<HTMLElement | null>(null);
   const leafElRef = useRef<HTMLElement | null>(null);
   const selectedLocatorRef = useRef<SourceLocator | null>(null);
@@ -229,6 +396,55 @@ export default function App() {
     const root = leaf.closest<HTMLElement>('.target') ?? leaf.closest<HTMLElement>('[data-live-ui-group-root="1"]');
     const els = buildBreadcrumbTrail({ leaf, root, max: 6 });
     setBreadcrumbs(els.map(el => ({ el, label: pickBreadcrumbLabel(el) })));
+  };
+
+  const pickStableClasses = (classList: DOMTokenList | undefined | null, max: number): string[] | undefined => {
+    if (!classList) return undefined;
+    const out: string[] = [];
+    for (const c of Array.from(classList)) {
+      const cls = String(c || '').trim();
+      if (!cls) continue;
+      // Avoid very long/generated classnames.
+      if (cls.length > 32) continue;
+      // Drop obvious hashes.
+      if (/[a-f0-9]{8,}/i.test(cls)) continue;
+      out.push(cls);
+      if (out.length >= max) break;
+    }
+    return out.length ? out : undefined;
+  };
+
+  const isScrollContainerEl = (el: HTMLElement): boolean => {
+    const style = window.getComputedStyle(el);
+    const overflowY = style.overflowY;
+    const overflowX = style.overflowX;
+    const scrollY = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+    const scrollX = overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'overlay';
+    if (!scrollX && !scrollY) return false;
+    // Heuristic: only treat as scroll container if there's more content than viewport.
+    return (el.scrollHeight > el.clientHeight + 1) || (el.scrollWidth > el.clientWidth + 1);
+  };
+
+  const summarizeNode = (el: HTMLElement | null): { tagName: string; id?: string; classList?: string[] } | null => {
+    if (!el) return null;
+    return {
+      tagName: el.tagName.toLowerCase(),
+      id: el.id || undefined,
+      classList: pickStableClasses(el.classList, 6),
+    };
+  };
+
+  const findGroupRoot = (el: HTMLElement): HTMLElement | null => {
+    return (
+      el.closest<HTMLElement>('[data-live-ui-group-root="1"]') ??
+      el.closest<HTMLElement>('.target') ??
+      null
+    );
+  };
+
+  const findGroupRootMapped = (mappedEl: HTMLElement): HTMLElement => {
+    const group = findGroupRoot(mappedEl) ?? mappedEl;
+    return group.closest<HTMLElement>('[data-source-file][data-source-line]') ?? group;
   };
 
   const postElementSelected = (sourceEl: HTMLElement) => {
@@ -494,7 +710,6 @@ export default function App() {
         setQuickStartInfo(event.data.info);
         // Best-effort defaults (only nudge when user hasn't loaded anything yet).
         if (!renderedHtml) {
-          if (event.data.info.recommendedMode === 'app') setWelcomeMode('app');
           if (event.data.info.recommendedUrl && appUrl === 'http://127.0.0.1:5173') {
             setAppUrl(event.data.info.recommendedUrl);
           }
@@ -511,67 +726,64 @@ export default function App() {
     return () => window.removeEventListener('message', onMessage);
   }, [renderedHtml, appUrl]);
 
-  useEffect(() => {
-    // If we re-render the HTML, our previously selected DOM node may be replaced.
-    const canvas = canvasRef.current;
-    const loc = selectedLocatorRef.current;
-    if (!canvas || !loc) {
-      updateBreadcrumbs();
-      return;
-    }
+	useEffect(() => {
+		const report = quickStartInfo?.report;
+		if (!report) return;
 
-    const queryBase = `[data-source-file="${CSS.escape(loc.file)}"][data-source-line="${loc.line}"]`;
-    const query = loc.column ? `${queryBase}[data-source-column="${loc.column}"]` : queryBase;
-    const next = canvas.querySelector<HTMLElement>(query) ?? canvas.querySelector<HTMLElement>(queryBase);
-    if (next && next !== selectedElRef.current) {
-      setSelectedEl(next);
-    }
-    updateBreadcrumbs();
-    bumpDebug('renderedHtml', next?.getBoundingClientRect() ?? selectedElRef.current?.getBoundingClientRect() ?? null);
-  }, [renderedHtml]);
+		const apps = Array.isArray(report.apps) ? report.apps : [];
+		const previews = Array.isArray(report.previewTargets) ? report.previewTargets : [];
 
-  const pickStableClasses = (classList: DOMTokenList | null | undefined, max: number) => {
-    const raw = classList ? Array.from(classList) : [];
-    return raw
-      .map(c => c.trim())
-      .filter(Boolean)
-      .filter(c => c.length <= 40)
-      .filter(c => /^[a-zA-Z0-9_-]+$/.test(c))
-      .slice(0, max);
-  };
+		// Choose a default picker kind.
+		let nextKind: 'app' | 'preview' | 'none' = detectedPickKind;
+		if (nextKind === 'none') {
+			if (apps.length) nextKind = 'app';
+			else if (previews.length) nextKind = 'preview';
+		}
 
-  const isScrollContainerEl = (el: HTMLElement) => {
-    const cs = window.getComputedStyle(el);
-    const oy = cs.overflowY;
-    const ox = cs.overflowX;
-    const scrollY = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1;
-    const scrollX = (ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 1;
-    return scrollY || scrollX;
-  };
+		// Keep selections valid.
+		let nextAppRoot = detectedAppRoot;
+		let nextPreviewId = detectedPreviewId;
 
-  const summarizeNode = (el: HTMLElement | null | undefined) => {
-    if (!el) return null;
-    return { tagName: el.tagName.toLowerCase(), classList: pickStableClasses(el.classList, 4) };
-  };
+		if (nextKind === 'app') {
+			if (!apps.length) {
+				nextKind = previews.length ? 'preview' : 'none';
+			} else {
+				const exists = nextAppRoot && apps.some(a => a && typeof a.root === 'string' && a.root === nextAppRoot);
+				if (!exists) nextAppRoot = String(apps[0]?.root ?? '');
+			}
+		}
 
-  const findGroupRoot = (el: HTMLElement) => {
-    // Prefer an explicit "target" container when present.
-    const target = el.closest<HTMLElement>('.target');
-    if (target) return target;
-    // Or an explicitly marked group root.
-    const marked = el.closest<HTMLElement>('[data-live-ui-group-root="1"]');
-    if (marked) return marked;
-    return el;
-  };
+		if (nextKind === 'preview') {
+			if (!previews.length) {
+				nextKind = apps.length ? 'app' : 'none';
+			} else {
+				const exists = nextPreviewId && previews.some(p => p && typeof p.id === 'string' && p.id === nextPreviewId);
+				if (!exists) nextPreviewId = String(previews[0]?.id ?? '');
+			}
+		}
 
-  const findGroupRootMapped = (leafMapped: HTMLElement) => {
-    const groupCandidate = findGroupRoot(leafMapped);
-    // Always ensure we return a source-mapped element.
-    const mapped = groupCandidate.matches('[data-source-file][data-source-line]')
-      ? groupCandidate
-      : groupCandidate.closest<HTMLElement>('[data-source-file][data-source-line]');
-    return mapped ?? leafMapped;
-  };
+		if (nextKind !== detectedPickKind) setDetectedPickKind(nextKind);
+		if (nextAppRoot !== detectedAppRoot) setDetectedAppRoot(nextAppRoot);
+		if (nextPreviewId !== detectedPreviewId) setDetectedPreviewId(nextPreviewId);
+
+		// Suggested URL (editable): only replace if user hasn't customized.
+    let nextDefaultUrl = '';
+    if (nextKind === 'app') {
+      const app = apps.find(a => a && typeof a.root === 'string' && a.root === nextAppRoot) ?? apps[0];
+      const port = (app && typeof (app as any).defaultPort === 'number' && Number.isFinite((app as any).defaultPort)) ? (app as any).defaultPort : undefined;
+      nextDefaultUrl = port ? `http://127.0.0.1:${port}` : buildDefaultUrlForFramework(app?.framework);
+    } else if (nextKind === 'preview') {
+			const t = previews.find(p => p && typeof p.id === 'string' && p.id === nextPreviewId) ?? previews[0];
+			nextDefaultUrl = buildDefaultUrlForPreviewTarget(t);
+		}
+
+		if (nextDefaultUrl) {
+			const prevDefault = detectedUrlDefaultRef.current;
+			const shouldReplace = !detectedUrl || detectedUrl === prevDefault;
+			detectedUrlDefaultRef.current = nextDefaultUrl;
+			if (shouldReplace && detectedUrl !== nextDefaultUrl) setDetectedUrl(nextDefaultUrl);
+		}
+	}, [quickStartInfo, detectedPickKind, detectedAppRoot, detectedPreviewId, detectedUrl]);
 
   const selectParent = () => {
     const cur = selectedElRef.current;
@@ -635,7 +847,7 @@ export default function App() {
 
       const loc = editingLocatorRef.current;
       const file = loc?.file;
-      const line = loc?.line;
+      const line = (typeof loc?.line === 'number') ? loc.line : NaN;
       const column = loc?.column;
 
       const prevText = editingPrevTextRef.current;
@@ -1077,19 +1289,55 @@ export default function App() {
     );
   })();
 
+  const detectedReport = quickStartInfo?.report;
+  const detectedApps = Array.isArray(detectedReport?.apps) ? detectedReport!.apps : [];
+  const detectedPreviewTargets = Array.isArray(detectedReport?.previewTargets) ? detectedReport!.previewTargets : [];
+  const detectedHtmlCandidates = Array.isArray(detectedReport?.htmlCandidates) ? detectedReport!.htmlCandidates : [];
+
+  const selectedDetectedApp =
+    detectedPickKind === 'app'
+      ? detectedApps.find(a => a && typeof a.root === 'string' && a.root === detectedAppRoot) ?? detectedApps[0]
+      : undefined;
+  const selectedDetectedPreview =
+    detectedPickKind === 'preview'
+      ? detectedPreviewTargets.find(t => t && typeof t.id === 'string' && t.id === detectedPreviewId) ?? detectedPreviewTargets[0]
+      : undefined;
+  const selectedDetectedRoot = (detectedPickKind === 'preview') ? selectedDetectedPreview?.root : selectedDetectedApp?.root;
+
   return (
     <div style={{
 			fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
 			height: '100vh',
-			width: '100vw',
+      width: '100%',
+      maxWidth: '100%',
 			boxSizing: 'border-box',
 			background: theme.bg,
 			color: theme.fg,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
 		}}>
-      <div style={{ padding: 16, display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: 'space-between', background: theme.bg, color: theme.fg }}>
-        <div>
-        <h1 style={{ margin: 0, fontSize: 20, color: theme.fg }}>VSCode Live UI Editor</h1>
-        <p style={{ marginTop: 8, color: theme.desc, lineHeight: 1.45, fontSize: 13 }}>
+      <div style={{
+      padding: 14,
+      display: 'flex',
+      gap: 14,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      background: ui.panel,
+      borderBottom: `1px solid ${ui.border}`,
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+    }}>
+        <div style={{ flex: '1 1 520px', minWidth: 260 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img
+        src={logo}
+        alt="Live UI Editor"
+        style={{ height: 'clamp(36px, 4.2vh, 52px)', width: 'auto', display: 'block' }}
+      />
+        </div>
+        <p style={{ marginTop: 8, color: theme.desc, lineHeight: 1.5, fontSize: 13, maxWidth: 920 }}>
           Click to select. Drag to move (snaps). Arrow keys nudge (Shift=10px). Drag handles to resize. Ctrl/Cmd+Click to jump to code. Alt+Click forces leaf selection.
         </p>
         {breadcrumbs.length ? (
@@ -1103,10 +1351,12 @@ export default function App() {
                   style={{
                     padding: '2px 8px',
                     borderRadius: 999,
-                    border: `1px solid ${theme.border}`,
+                    border: `1px solid ${ui.border}`,
                     color: theme.fg,
-                    background: (b.el === selectedEl) ? 'rgba(99,102,241,0.28)' : theme.panel,
+                    background: (b.el === selectedEl) ? ui.gradientSoft : ui.surface,
                     cursor: 'pointer',
+					backdropFilter: 'blur(10px)',
+					WebkitBackdropFilter: 'blur(10px)',
                   }}
                   title={b.el.tagName.toLowerCase()}
                 >
@@ -1120,7 +1370,7 @@ export default function App() {
           Loaded: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>{loadedFile || '(none)'}</span>
         </div>
         {helpExpanded ? (
-          <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.panel, maxWidth: 860, color: theme.fg }}>
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.card, maxWidth: 860, color: theme.fg, boxShadow: ui.glow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>Help</div>
             <div style={{ fontSize: 12, color: theme.desc, lineHeight: 1.5 }}>
               <div><b>Selection mode:</b> Group selects the nearest container (like <code>.target</code>) so grouped UIs stay together.</div>
@@ -1128,7 +1378,7 @@ export default function App() {
               <div><b>Shortcuts:</b> Ctrl/Cmd+Click jump • Alt+Click leaf • Shift+Click group • Arrow keys nudge (Shift=10px)</div>
               <div><b>Text editing:</b> Double-click text • Enter save • Esc cancel • Click away saves</div>
               <div style={{ marginTop: 8 }}>
-                <button onClick={() => vscode?.postMessage({ command: 'openHelp' })} style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg }}>
+                <button onClick={() => vscode?.postMessage({ command: 'openHelp' })} style={controlButtonStyle(false)}>
                   Open full HELP.md
                 </button>
               </div>
@@ -1137,30 +1387,30 @@ export default function App() {
         ) : null}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 6, padding: 6, borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.panel }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flex: '0 1 auto' }}>
+          <div style={{ display: 'flex', gap: 6, padding: 6, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surfaceStrong, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
             <button
               onClick={() => setSelectionMode('group')}
-              style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, color: theme.fg, background: selectionMode === 'group' ? 'rgba(99,102,241,0.28)' : theme.bg }}
+			  style={controlButtonStyle(selectionMode === 'group')}
               title="Select whole grouped areas"
             >
               Group
             </button>
             <button
               onClick={() => setSelectionMode('element')}
-              style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, color: theme.fg, background: selectionMode === 'element' ? 'rgba(99,102,241,0.28)' : theme.bg }}
+			  style={controlButtonStyle(selectionMode === 'element')}
               title="Select individual elements"
             >
               Element
             </button>
           </div>
-          <button onClick={selectParent} disabled={!selectedEl} style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, opacity: selectedEl ? 1 : 0.6 }}>
+          <button onClick={selectParent} disabled={!selectedEl} style={{ ...controlButtonStyle(false), opacity: selectedEl ? 1 : 0.55, cursor: selectedEl ? 'pointer' : 'not-allowed' }}>
             Select parent
           </button>
-          <button onClick={() => setHelpExpanded(v => !v)} style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg }}>
+          <button onClick={() => setHelpExpanded(v => !v)} style={controlButtonStyle(helpExpanded)}>
             {helpExpanded ? 'Hide help' : 'Help'}
           </button>
-          <button onClick={() => setDebugEnabled(v => !v)} style={{ padding: '6px 10px', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg }}>
+          <button onClick={() => setDebugEnabled(v => !v)} style={controlButtonStyle(debugEnabled)}>
             {debugEnabled ? 'Debug: On' : 'Debug: Off'}
           </button>
         </div>
@@ -1173,7 +1423,8 @@ export default function App() {
         style={{
           position: 'relative',
           width: '100%',
-          height: 'calc(100vh - 110px)',
+          flex: 1,
+          minHeight: 0,
           margin: 0,
           padding: 0,
           border: 'none',
@@ -1184,21 +1435,24 @@ export default function App() {
         {renderedHtml ? (
           <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
         ) : (
-          <div style={{ padding: 22 }}>
-            <div style={{ maxWidth: 920, borderRadius: 16, border: `1px solid ${theme.border}`, background: theme.panel, padding: 18, color: theme.fg }}>
-              <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: 0.2 }}>Welcome to Live UI Editor</div>
+          <div style={{ padding: 22, display: 'flex', justifyContent: 'center' }}>
+            <div style={{ width: 'min(920px, 100%)', borderRadius: 18, border: `1px solid ${ui.border}`, background: ui.card, padding: 18, color: theme.fg, boxShadow: ui.glow, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}>
+              <div style={{ fontWeight: 950, fontSize: 22, letterSpacing: 0.2 }}>Welcome</div>
               <div style={{ marginTop: 8, color: theme.desc, lineHeight: 1.5, fontSize: 14 }}>
                 Pick what you’re working on, then hit Start. This is designed to work in <b>any repo</b> (even if you don’t know the framework).
               </div>
 
               {quickStartInfo ? (
-                <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg }}>
+                <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surfaceStrong, color: theme.fg, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
                   <div style={{ fontWeight: 800, fontSize: 13 }}>Detected</div>
                   <div style={{ marginTop: 6, fontSize: 13, color: theme.desc, lineHeight: 1.5 }}>
-                    {quickStartInfo.appsDetected?.length ? (
+          {detectedReport ? (
                       <>
                         <div>
-                          App(s): {quickStartInfo.appsDetected.map(a => `${a.framework.toUpperCase()} (${a.label || 'app'})`).join(' • ')}
+                Apps: {detectedApps.length || 0} • Preview targets: {detectedPreviewTargets.length || 0}
+                        </div>
+                        <div>
+                          HTML entrypoints: {detectedHtmlCandidates.length || 0}
                         </div>
                         {quickStartInfo.recommendedUrl ? (
                             <div>
@@ -1210,10 +1464,476 @@ export default function App() {
                               ) : null}
                             </div>
                         ) : null}
+
+                        <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surface, color: theme.fg }}>
+                          <div style={{ fontWeight: 850, fontSize: 13 }}>Detected main</div>
+                          <div style={{ marginTop: 6, fontSize: 13, color: theme.desc }}>
+                            {(() => {
+                              // Prefer recommended mode, but always fall back to anything detected.
+                              const wantsApp = quickStartInfo.recommendedMode === 'app';
+                              const hasAppOrPreview = (detectedApps.length + detectedPreviewTargets.length) > 0;
+                              const hasHtml = detectedHtmlCandidates.length > 0;
+
+                              if (wantsApp && hasAppOrPreview) {
+                                const primaryApp = detectedApps[0];
+                                const primaryPreview = detectedPreviewTargets[0];
+                                if (primaryApp) {
+                                  return (
+                                    <div>
+                                      Recommended: <b>{primaryApp.framework.toUpperCase()}</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryApp.label || primaryApp.root}</span>
+                                      <button
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('app');
+                                          setDetectedAppRoot(primaryApp.root);
+                                        }}
+                                        style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                        title="Select this app"
+                                      >
+                                        Select
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                                if (primaryPreview) {
+                                  return (
+                                    <div>
+                                      Recommended: <b>{primaryPreview.label}</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryPreview.root}</span>
+                                      <button
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('preview');
+                                          setDetectedPreviewId(primaryPreview.id);
+                                        }}
+                                        style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                        title="Select this preview"
+                                      >
+                                        Select
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                              }
+
+                              if (!wantsApp && hasHtml) {
+                                const primaryHtml = detectedHtmlCandidates[0];
+                                return (
+                                  <div>
+                                    Recommended: <b>HTML</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryHtml.label}</span>
+                                    <button
+                                      onClick={() => {
+                                        setWelcomeMode('html');
+                                        vscode?.postMessage({ command: 'quickStart', mode: 'static', static: { target: 'file', fileId: primaryHtml.fileId } } satisfies FromWebviewMessage);
+                                      }}
+                                      style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                      title={primaryHtml.fileId}
+                                    >
+                                      Open
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              // Fallback priority: apps/previews first, then HTML.
+                              if (hasAppOrPreview) {
+                                const primaryApp = detectedApps[0];
+                                const primaryPreview = detectedPreviewTargets[0];
+                                if (primaryApp) {
+                                  return (
+                                    <div>
+                                      Suggested: <b>{primaryApp.framework.toUpperCase()}</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryApp.label || primaryApp.root}</span>
+                                      <button
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('app');
+                                          setDetectedAppRoot(primaryApp.root);
+                                        }}
+                                        style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                      >
+                                        Select
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                                if (primaryPreview) {
+                                  return (
+                                    <div>
+                                      Suggested: <b>{primaryPreview.label}</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryPreview.root}</span>
+                                      <button
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('preview');
+                                          setDetectedPreviewId(primaryPreview.id);
+                                        }}
+                                        style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                      >
+                                        Select
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                              }
+
+                              if (hasHtml) {
+                                const primaryHtml = detectedHtmlCandidates[0];
+                                return (
+                                  <div>
+                                    Suggested: <b>HTML</b> — <span style={{ color: theme.fg, fontWeight: 800 }}>{primaryHtml.label}</span>
+                                    <button
+                                      onClick={() => {
+                                        setWelcomeMode('html');
+                                        vscode?.postMessage({ command: 'quickStart', mode: 'static', static: { target: 'file', fileId: primaryHtml.fileId } } satisfies FromWebviewMessage);
+                                      }}
+                                      style={{ ...toggleButtonStyle(false), marginLeft: 10 }}
+                                      title={primaryHtml.fileId}
+                                    >
+                                      Open
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              return <div>No supported targets detected yet. You can still pick a file manually.</div>;
+                            })()}
+                          </div>
+
+                          {(detectedApps.length || detectedPreviewTargets.length || detectedHtmlCandidates.length) ? (
+                            <div style={{ marginTop: 10 }}>
+                              <div style={{ fontWeight: 850, fontSize: 13 }}>Other detected targets</div>
+
+                              {detectedApps.length ? (
+                                <div style={{ marginTop: 8 }}>
+                                  <div style={{ fontSize: 12, color: theme.desc, fontWeight: 800 }}>Apps</div>
+                                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {detectedApps.map((a, idx) => (
+                                      <button
+                                        key={`${a.root}-${idx}`}
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('app');
+                                          setDetectedAppRoot(a.root);
+                                        }}
+                                        style={toggleButtonStyle(false)}
+                                        title={a.root}
+                                      >
+                                        Select {a.framework.toUpperCase()} — {a.label || a.root}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {detectedPreviewTargets.length ? (
+                                <div style={{ marginTop: 10 }}>
+                                  <div style={{ fontSize: 12, color: theme.desc, fontWeight: 800 }}>Previews</div>
+                                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {detectedPreviewTargets.map((t, idx) => (
+                                      <button
+                                        key={`${t.id}-${idx}`}
+                                        onClick={() => {
+                                          setWelcomeMode('app');
+                                          setDetectedPickKind('preview');
+                                          setDetectedPreviewId(t.id);
+                                        }}
+                                        style={toggleButtonStyle(false)}
+                                        title={t.root}
+                                      >
+                                        Select {t.label} — {t.root}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {detectedHtmlCandidates.length ? (
+                                <div style={{ marginTop: 10 }}>
+                                  <div style={{ fontSize: 12, color: theme.desc, fontWeight: 800 }}>HTML</div>
+                                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {detectedHtmlCandidates.slice(0, 10).map((c, i) => (
+                                      <button
+                                        key={`${c.fileId}-${i}`}
+                                        onClick={() => {
+                                          setWelcomeMode('html');
+                                          vscode?.postMessage({ command: 'quickStart', mode: 'static', static: { target: 'file', fileId: c.fileId } } satisfies FromWebviewMessage);
+                                        }}
+                                        style={toggleButtonStyle(false)}
+                                        title={c.fileId}
+                                      >
+                                        Open {c.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+
+                          {(detectedApps.length || detectedPreviewTargets.length) ? (
+                            <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surface, color: theme.fg }}>
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', gap: 6, padding: 6, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surfaceStrong, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
+                                    <button
+                                      onClick={() => setDetectedPickKind('app')}
+                                      disabled={!detectedApps.length}
+                                      style={{ ...controlButtonStyle(detectedPickKind === 'app'), opacity: detectedApps.length ? 1 : 0.55, cursor: detectedApps.length ? 'pointer' : 'not-allowed' }}
+                                    >
+                                      App
+                                    </button>
+                                    <button
+                                      onClick={() => setDetectedPickKind('preview')}
+                                      disabled={!detectedPreviewTargets.length}
+                                      style={{ ...controlButtonStyle(detectedPickKind === 'preview'), opacity: detectedPreviewTargets.length ? 1 : 0.55, cursor: detectedPreviewTargets.length ? 'pointer' : 'not-allowed' }}
+                                    >
+                                      Preview
+                                    </button>
+                                  </div>
+
+                                  {detectedPickKind === 'app' ? (
+                                    <select value={detectedAppRoot} onChange={e => setDetectedAppRoot(e.target.value)} style={{ ...selectStyle, minWidth: 320 }}>
+                                      {detectedApps.map((a, idx) => (
+                                        <option key={`${a.root}-${idx}`} value={a.root}>
+                                          {a.framework.toUpperCase()} — {a.label || a.root}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : detectedPickKind === 'preview' ? (
+                                    <select value={detectedPreviewId} onChange={e => setDetectedPreviewId(e.target.value)} style={{ ...selectStyle, minWidth: 320 }}>
+                                      {detectedPreviewTargets.map((t, idx) => (
+                                        <option key={`${t.id}-${idx}`} value={t.id}>
+                                          {t.label} — {t.root}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span style={{ color: theme.desc, fontSize: 12 }}>Pick App or Preview to continue.</span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      if (!selectedDetectedRoot) return;
+                                      vscode?.postMessage({ command: 'autoInstallDeps', root: selectedDetectedRoot } satisfies FromWebviewMessage);
+                                    }}
+                                    disabled={!selectedDetectedRoot}
+                                    style={toggleButtonStyle(false)}
+                                    title="Runs npm/pnpm/yarn install in this folder"
+                                  >
+                                    Install deps
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (!selectedDetectedRoot) return;
+                                      if (detectedPickKind === 'app' && selectedDetectedApp) {
+                                        const msg: FromWebviewMessage = {
+                                          command: 'quickStart',
+                                          mode: 'app',
+                                          app: {
+                                            connect: 'integrated',
+                                            appRoot: selectedDetectedApp.root,
+                                            framework: selectedDetectedApp.framework,
+                                            devScript: selectedDetectedApp.devScript,
+                                            scriptName: (selectedDetectedApp as any).scriptName,
+                                            defaultPort: (selectedDetectedApp as any).defaultPort,
+                                            styleAdapterPref: appStyleAdapterPref,
+                                            layoutApplyMode: appLayoutApplyMode,
+                                            startBackend: appStartBackend,
+                                          }
+                                      };
+                                      vscode?.postMessage(msg);
+                                      return;
+                                    }
+                                    if (detectedPickKind === 'preview' && selectedDetectedPreview) {
+                                        const url = (detectedUrl || buildDefaultUrlForPreviewTarget(selectedDetectedPreview)).trim();
+                                        const msg: FromWebviewMessage = {
+                                          command: 'quickStart',
+                                          mode: 'app',
+                                          app: {
+                                            connect: 'integrated',
+                                            url,
+                                            appRoot: selectedDetectedPreview.root,
+                                            framework: 'generic',
+                                            devScript: 'dev',
+                                            scriptName: selectedDetectedPreview.scriptName,
+                                            defaultPort: selectedDetectedPreview.defaultPort,
+                                            urlPath: selectedDetectedPreview.urlPath,
+                                            styleAdapterPref: appStyleAdapterPref,
+                                            layoutApplyMode: appLayoutApplyMode,
+                                            startBackend: appStartBackend,
+                                          }
+                                      };
+                                      vscode?.postMessage(msg);
+                                    }
+                                    }}
+                                    disabled={!selectedDetectedRoot || detectedPickKind === 'none'}
+                                    style={primaryButtonStyle}
+                                    title="Starts and connects"
+                                  >
+                                    Start & Connect
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (!selectedDetectedRoot) return;
+                                      if (detectedPickKind === 'app' && selectedDetectedApp) {
+                                        const msg: FromWebviewMessage = {
+                                          command: 'quickStart',
+                                          mode: 'app',
+                                          app: {
+                                            connect: 'external',
+                                            appRoot: selectedDetectedApp.root,
+                                            framework: selectedDetectedApp.framework,
+                                            devScript: selectedDetectedApp.devScript,
+                                            scriptName: (selectedDetectedApp as any).scriptName,
+                                            defaultPort: (selectedDetectedApp as any).defaultPort,
+                                            styleAdapterPref: appStyleAdapterPref,
+                                            layoutApplyMode: appLayoutApplyMode,
+                                            startBackend: appStartBackend,
+                                          }
+                                      };
+                                      vscode?.postMessage(msg);
+                                      return;
+                                    }
+                                    if (detectedPickKind === 'preview' && selectedDetectedPreview) {
+                                        const url = (detectedUrl || buildDefaultUrlForPreviewTarget(selectedDetectedPreview)).trim();
+                                        const msg: FromWebviewMessage = {
+                                          command: 'quickStart',
+                                          mode: 'app',
+                                          app: {
+                                            connect: 'external',
+                                            url,
+                                            appRoot: selectedDetectedPreview.root,
+                                            framework: 'generic',
+                                            devScript: 'dev',
+                                            scriptName: selectedDetectedPreview.scriptName,
+                                            defaultPort: selectedDetectedPreview.defaultPort,
+                                            urlPath: selectedDetectedPreview.urlPath,
+                                            styleAdapterPref: appStyleAdapterPref,
+                                            layoutApplyMode: appLayoutApplyMode,
+                                            startBackend: appStartBackend,
+                                          }
+                                      };
+                                      vscode?.postMessage(msg);
+                                    }
+                                    }}
+                                    disabled={!selectedDetectedRoot || detectedPickKind === 'none'}
+                                    style={toggleButtonStyle(false)}
+                                    title="Starts in an external window"
+                                  >
+                                    Start external
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <input
+                                  value={detectedUrl}
+                                  onChange={e => setDetectedUrl(e.target.value)}
+                                  placeholder="http://127.0.0.1:3000/"
+                                  style={{ ...textInputStyle, flex: '1 1 320px', minWidth: 260 }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (!selectedDetectedRoot) return;
+                                    const url = (detectedUrl || '').trim();
+                                    if (!url) return;
+                                    if (detectedPickKind === 'app' && selectedDetectedApp) {
+                                      const msg: FromWebviewMessage = {
+                                        command: 'quickStart',
+                                        mode: 'app',
+                                        app: {
+                                          connect: 'existing',
+                                          url,
+                                          appRoot: selectedDetectedApp.root,
+                                          framework: selectedDetectedApp.framework,
+                                          devScript: selectedDetectedApp.devScript,
+                                          scriptName: (selectedDetectedApp as any).scriptName,
+                                          defaultPort: (selectedDetectedApp as any).defaultPort,
+                                          styleAdapterPref: appStyleAdapterPref,
+                                          layoutApplyMode: appLayoutApplyMode,
+                                          startBackend: appStartBackend,
+                                        }
+                                      };
+                                      vscode?.postMessage(msg);
+                                      return;
+                                    }
+                                    if (detectedPickKind === 'preview' && selectedDetectedPreview) {
+                                      const msg: FromWebviewMessage = {
+                                        command: 'quickStart',
+                                        mode: 'app',
+                                        app: {
+                                          connect: 'existing',
+                                          url,
+                                          appRoot: selectedDetectedPreview.root,
+                                          framework: 'generic',
+                                          devScript: 'dev',
+                                          scriptName: selectedDetectedPreview.scriptName,
+                                          defaultPort: selectedDetectedPreview.defaultPort,
+                                          urlPath: selectedDetectedPreview.urlPath,
+                                          styleAdapterPref: appStyleAdapterPref,
+                                          layoutApplyMode: appLayoutApplyMode,
+                                          startBackend: appStartBackend,
+                                        }
+                                      };
+                                      vscode?.postMessage(msg);
+                                    }
+                                  }}
+                                  disabled={!selectedDetectedRoot || !(detectedUrl || '').trim() || detectedPickKind === 'none'}
+                                  style={toggleButtonStyle(false)}
+                                  title="Connect to an existing dev server URL"
+                                >
+                                  Connect existing
+                                </button>
+                              </div>
+
+                              {selectedDetectedRoot ? (
+                                <div style={{ marginTop: 8, fontSize: 12, color: theme.desc }}>
+                                  Selected: <span style={{ color: theme.fg, fontWeight: 800 }}>{selectedDetectedRoot}</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                       </>
-                    ) : (
-                      <div>No supported dev-server app detected (Vite/Next). HTML mode is a great start.</div>
+                      ) : quickStartInfo.appsDetected?.length ? (
+                        <>
+                          <div>
+                            App(s): {quickStartInfo.appsDetected.map(a => `${a.framework.toUpperCase()} (${a.label || 'app'})`).join(' • ')}
+                          </div>
+                          {quickStartInfo.recommendedUrl ? (
+                            <div>
+                              Suggested URL: <code style={{ color: theme.fg }}>{quickStartInfo.recommendedUrl}</code>
+                              {quickStartInfo.recommendedConnect === 'existing' ? (
+                                <span style={{ marginLeft: 8, fontWeight: 800, color: '#16a34a' }}>• looks running</span>
+                              ) : quickStartInfo.recommendedConnect === 'integrated' ? (
+                                <span style={{ marginLeft: 8, fontWeight: 800, color: '#f59e0b' }}>• not running yet</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                      <div>
+                        No supported dev-server app detected (Vite/Next). HTML mode is a great start.
+                        {quickStartInfo.report?.htmlCandidates?.length ? (
+                          <div style={{ marginTop: 8 }}>
+                            Found HTML entrypoints:
+                            <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              {quickStartInfo.report.htmlCandidates.slice(0, 6).map((c, i) => (
+                                <button
+                                  key={`${c.fileId}-${i}`}
+                                  onClick={() => vscode?.postMessage({ command: 'quickStart', mode: 'static', static: { target: 'file', fileId: c.fileId } } satisfies FromWebviewMessage)}
+                                  style={toggleButtonStyle(false)}
+                                  title={c.fileId}
+                                >
+                                  Open {c.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     )}
+
                     {quickStartInfo.notes?.length ? (
                       <div style={{ marginTop: 6 }}>
                         {quickStartInfo.notes.map((n, i) => (
@@ -1228,27 +1948,13 @@ export default function App() {
               <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setWelcomeMode('html')}
-                  style={{
-						padding: '10px 14px',
-						borderRadius: 12,
-						border: `1px solid ${theme.border}`,
-						background: welcomeMode === 'html' ? theme.buttonBg : theme.bg,
-						color: welcomeMode === 'html' ? theme.buttonFg : theme.fg,
-						fontWeight: 800,
-					}}
+                  style={toggleButtonStyle(welcomeMode === 'html')}
                 >
                   Static HTML / No dev server
                 </button>
                 <button
                   onClick={() => setWelcomeMode('app')}
-                  style={{
-						padding: '10px 14px',
-						borderRadius: 12,
-						border: `1px solid ${theme.border}`,
-						background: welcomeMode === 'app' ? theme.buttonBg : theme.bg,
-						color: welcomeMode === 'app' ? theme.buttonFg : theme.fg,
-						fontWeight: 800,
-					}}
+                  style={toggleButtonStyle(welcomeMode === 'app')}
                 >
                   App Mode (dev server)
                 </button>
@@ -1261,13 +1967,31 @@ export default function App() {
                     Best for simple sites or when you don’t have a dev server. You’ll pick an <code>.html</code> file and edit it visually.
                   </div>
 
+          {quickStartInfo?.report?.htmlCandidates?.length ? (
+          <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surface, color: theme.fg }}>
+            <div style={{ fontWeight: 850, fontSize: 13 }}>Suggested HTML entrypoints</div>
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {quickStartInfo.report.htmlCandidates.slice(0, 8).map((c, i) => (
+              <button
+              key={`${c.fileId}-${i}`}
+              onClick={() => vscode?.postMessage({ command: 'quickStart', mode: 'static', static: { target: 'file', fileId: c.fileId } } satisfies FromWebviewMessage)}
+              style={toggleButtonStyle(false)}
+              title={c.fileId}
+              >
+              Open {c.label}
+              </button>
+            ))}
+            </div>
+          </div>
+          ) : null}
+
                   <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => {
                         const msg: FromWebviewMessage = { command: 'quickStart', mode: 'static', static: { target: 'htmlPicker' } };
                         vscode?.postMessage(msg);
                       }}
-                      style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#16a34a', color: '#ffffff', fontWeight: 900 }}
+                      style={primaryButtonStyle}
                     >
                       Start (pick an HTML file)
                     </button>
@@ -1276,20 +2000,20 @@ export default function App() {
                   <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => vscode?.postMessage({ command: 'pickTargetFile', kind: 'html' })}
-                      style={{ padding: '10px 14px', borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, fontWeight: 700 }}
+                      style={toggleButtonStyle(false)}
                     >
                       Pick an HTML file…
                     </button>
                     <button
                       onClick={() => vscode?.postMessage({ command: 'pickTargetFile', kind: 'active' })}
-                      style={{ padding: '10px 14px', borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, fontWeight: 700 }}
+                      style={toggleButtonStyle(false)}
                       title="Uses the currently open editor file"
                     >
                       Use current file
                     </button>
                     <button
                       onClick={() => vscode?.postMessage({ command: 'pickTargetFile', kind: 'sample' })}
-                      style={{ padding: '10px 14px', borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, fontWeight: 700 }}
+                      style={toggleButtonStyle(false)}
                       title="Loads the built-in sample (or prompts if missing)"
                     >
                       Try a sample
@@ -1306,7 +2030,7 @@ export default function App() {
                   <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, color: theme.desc }}>Connect:</span>
-                      <select value={appConnect} onChange={(e) => setAppConnect(e.target.value as any)} style={{ padding: '8px 10px', borderRadius: 10, border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.inputFg }}>
+                      <select value={appConnect} onChange={(e) => setAppConnect(e.target.value as any)} style={selectStyle}>
                         <option value="integrated">Start dev server (integrated terminal)</option>
                         <option value="existing">Use existing URL</option>
                         <option value="external">Start dev server (external window)</option>
@@ -1319,7 +2043,7 @@ export default function App() {
                           value={appUrl}
                           onChange={(e) => setAppUrl(e.target.value)}
                           placeholder="http://127.0.0.1:5173"
-							style={{ width: 300, padding: '8px 10px', borderRadius: 10, border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.inputFg }}
+							style={{ ...textInputStyle, width: 300 }}
                         />
                       </div>
                     ) : null}
@@ -1328,7 +2052,7 @@ export default function App() {
                   <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, color: theme.desc }}>Style mode:</span>
-                      <select value={appStyleAdapterPref} onChange={(e) => setAppStyleAdapterPref(e.target.value as any)} style={{ padding: '8px 10px', borderRadius: 10, border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.inputFg }}>
+                      <select value={appStyleAdapterPref} onChange={(e) => setAppStyleAdapterPref(e.target.value as any)} style={selectStyle}>
                         <option value="auto">Auto (recommended)</option>
                         <option value="tailwind">Tailwind</option>
                         <option value="cssClass">CSS Class</option>
@@ -1337,7 +2061,7 @@ export default function App() {
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, color: theme.desc }}>Layout apply:</span>
-                      <select value={appLayoutApplyMode} onChange={(e) => setAppLayoutApplyMode(e.target.value as any)} style={{ padding: '8px 10px', borderRadius: 10, border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.inputFg }}>
+                      <select value={appLayoutApplyMode} onChange={(e) => setAppLayoutApplyMode(e.target.value as any)} style={selectStyle}>
                         <option value="off">Off (safest)</option>
                         <option value="safe">Safe</option>
                         <option value="full">Full (advanced)</option>
@@ -1346,10 +2070,39 @@ export default function App() {
                   </div>
 
                   <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: theme.desc, lineHeight: 1.4 }}>
-                      <input type="checkbox" checked={appStartBackend} onChange={(e) => setAppStartBackend(e.target.checked)} />
-                      Also start backend/API server (if the repo has one)
-                    </label>
+          <label
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              fontSize: 13,
+              color: theme.fg,
+              lineHeight: 1.4,
+              padding: '8px 10px',
+              borderRadius: 12,
+              border: `1px solid ${ui.border}`,
+              background: ui.surface,
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={appStartBackend}
+              onChange={(e) => setAppStartBackend(e.target.checked)}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: brand.teal,
+                cursor: 'pointer',
+              }}
+            />
+            <span>
+              Also start backend/API server <span style={{ color: theme.desc }}>(if the repo has one)</span>
+            </span>
+          </label>
                   </div>
 
                   <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1368,20 +2121,20 @@ export default function App() {
                         };
                         vscode?.postMessage(msg);
                       }}
-						style={{ padding: '12px 16px', borderRadius: 12, border: 'none', background: '#16a34a', color: '#ffffff', fontWeight: 900 }}
+						style={primaryButtonStyle}
                     >
                       Start App Mode
                     </button>
                     <button
                       onClick={() => setHelpExpanded(true)}
-						style={{ padding: '12px 16px', borderRadius: 12, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, fontWeight: 800 }}
+						style={toggleButtonStyle(false)}
                       title="Shows quick help + link to full HELP.md"
                     >
                       Help / Troubleshooting
                     </button>
                   </div>
 
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px dashed ${theme.border}`, background: theme.bg, color: theme.fg }}>
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px dashed ${ui.border}`, background: ui.surfaceStrong, color: theme.fg, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
                     <div style={{ fontWeight: 900, fontSize: 13 }}>Don’t have a dev server set up?</div>
                     <div style={{ marginTop: 8, fontSize: 13, color: theme.desc, lineHeight: 1.5 }}>
                       Most web apps can be started with <code>npm install</code> then <code>npm run dev</code> (or <code>npm start</code>). If you’re not sure, ask Copilot Chat in VS Code:
@@ -1389,9 +2142,11 @@ export default function App() {
                     <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       <button
                         onClick={async () => {
-                          const detected = quickStartInfo?.appsDetected?.length
-                            ? `Detected apps: ${quickStartInfo.appsDetected.map(a => `${a.framework.toUpperCase()} (${a.label || 'app'})`).join(' • ')}.`
-                            : 'No Vite/Next app auto-detected.';
+                          const detected = quickStartInfo?.report?.apps?.length
+                            ? `Detected apps: ${quickStartInfo.report.apps.map(a => `${a.framework.toUpperCase()} (${a.label || 'app'})`).join(' • ')}.`
+                            : (quickStartInfo?.appsDetected?.length
+                              ? `Detected apps: ${quickStartInfo.appsDetected.map(a => `${a.framework.toUpperCase()} (${a.label || 'app'})`).join(' • ')}.`
+                              : 'No dev-server app auto-detected.');
                           const install = quickStartInfo?.installHint ? `Install: ${quickStartInfo.installHint}.` : '';
                           const dev = quickStartInfo?.devHint ? `Dev server: ${quickStartInfo.devHint}.` : '';
                           const url = quickStartInfo?.recommendedUrl ? `It should run on ${quickStartInfo.recommendedUrl} (or tell me the correct URL/port).` : 'Tell me the correct localhost URL/port.';
@@ -1402,7 +2157,7 @@ export default function App() {
                             // ignore
                           }
                         }}
-						style={{ padding: '10px 12px', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.fg, fontWeight: 800 }}
+						style={toggleButtonStyle(false)}
                       >
                         Copy Copilot prompt
                       </button>

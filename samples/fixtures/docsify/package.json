@@ -1,0 +1,10 @@
+{
+  "name": "fixture-docsify",
+  "private": true,
+  "scripts": {
+    "docs": "docsify serve docs -p 3000"
+  },
+  "devDependencies": {
+    "docsify-cli": "^4.4.0"
+  }
+}

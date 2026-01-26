@@ -1,0 +1,11 @@
+{
+  "name": "fixture-vite-mpa",
+  "private": true,
+  "scripts": {
+    "dev": "vite --port 5173"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  }
+}

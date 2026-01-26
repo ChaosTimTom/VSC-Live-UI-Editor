@@ -1,0 +1,11 @@
+{
+  "name": "fixture-gatsby-app",
+  "private": true,
+  "scripts": {
+    "dev": "gatsby develop",
+    "develop": "gatsby develop"
+  },
+  "dependencies": {
+    "gatsby": "^5.0.0"
+  }
+}

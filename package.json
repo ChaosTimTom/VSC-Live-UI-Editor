@@ -1,12 +1,28 @@
 {
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
-  "description": "Visual UI editing in VS Code — Welcome/Quick Start wizard, Static HTML mode, and App Mode for React/Vite/Next.js. Safe source updates, universal style targets, and the @ui-wizard chat participant for natural-language edits.",
-  "version": "0.2.2",
+  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next). Click-to-code, drag/resize, inline text editing, Tailwind/CSS/inline style targets, Stable IDs, and the @ui-wizard chat participant.",
+  "version": "0.2.3",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "preview": true,
   "markdown": "github",
+  "galleryBanner": {
+    "color": "#0b1220",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=white",
+      "href": "https://discord.gg/QHnHhCjWDQ",
+      "description": "Join the Discord"
+    },
+    {
+      "url": "https://img.shields.io/badge/GitHub-Repo-111827?style=flat&logo=github&logoColor=white",
+      "href": "https://github.com/ChaosTimTom/VSC-Live-UI-Editor",
+      "description": "Source repository"
+    }
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ChaosTimTom/VSC-Live-UI-Editor"
@@ -24,10 +40,15 @@
     "Visualization"
   ],
   "keywords": [
+    "click to code",
     "react",
     "vite",
     "nextjs",
     "tauri",
+    "html",
+    "jsx",
+    "tsx",
+    "tailwind",
     "ui",
     "visual",
     "editor",
@@ -37,7 +58,10 @@
     "wysiwyg",
     "webview",
     "app mode",
-    "chat"
+    "stable ids",
+    "apply to code",
+    "chat",
+    "ui wizard"
   ],
   "activationEvents": [
     "onCommand:liveUI.open",
@@ -76,11 +100,15 @@
     "watch:extension": "npm run typecheck && node ./esbuild.extension.mjs --watch",
     "package:webview": "npm --prefix webview-ui run build",
     "package:vsix": "npm run build && npx --yes @vscode/vsce package",
-    "publish:vsce": "npm run build && npx --yes @vscode/vsce publish"
+    "publish:vsce": "npm run build && npx --yes @vscode/vsce publish",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
     "http-proxy": "^1.18.1",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
     "parse5": "^7.2.1",
     "ts-morph": "^23.0.0"
   },
@@ -90,6 +118,7 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.27.2",
     "rimraf": "^6.1.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
   }
 }

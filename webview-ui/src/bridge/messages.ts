@@ -95,15 +95,65 @@ export type PickTargetFileMessage = {
   kind: 'html' | 'react' | 'any' | 'active' | 'sample';
 };
 
+export type DetectionReportApp = {
+  root: string;
+  label: string;
+  framework: 'vite' | 'next' | 'cra' | 'astro' | 'sveltekit' | 'angular' | 'vue' | 'nuxt' | 'gatsby' | 'remix' | 'generic';
+  devScript?: 'dev' | 'start';
+  scriptName?: string;
+  defaultPort?: number;
+  isTauri?: boolean;
+};
+
+export type DetectionReportHtmlCandidate = {
+  fileId: string;
+  label: string;
+  score?: number;
+  reason?: string;
+};
+
+export type DetectionReportPreviewTarget = {
+  id: string;
+  label: string;
+  root: string;
+  scriptName?: string;
+  defaultPort?: number;
+  urlPath?: string;
+  kind?: 'storybook' | 'ladle' | 'styleguidist' | 'docusaurus' | 'vitepress' | 'vuepress' | 'docsify' | 'react-cosmos' | 'vite-mpa' | 'custom';
+};
+
+export type DetectionReport = {
+  apps: DetectionReportApp[];
+  htmlCandidates: DetectionReportHtmlCandidate[];
+  previewTargets?: DetectionReportPreviewTarget[];
+  environment?: {
+    isRemote?: boolean;
+    isWsl?: boolean;
+    isContainer?: boolean;
+  };
+};
+
+export type AutoInstallDepsMessage = {
+  command: 'autoInstallDeps';
+  root?: string;
+};
+
 export type QuickStartMessage = {
   command: 'quickStart';
   mode: 'static' | 'app';
   static?: {
-    target?: 'htmlPicker' | 'active' | 'sample';
+    target?: 'htmlPicker' | 'active' | 'sample' | 'file';
+    fileId?: string;
   };
   app?: {
     connect?: 'integrated' | 'external' | 'existing';
     url?: string;
+    appRoot?: string;
+    framework?: DetectionReportApp['framework'];
+    devScript?: 'dev' | 'start';
+    scriptName?: string;
+    defaultPort?: number;
+    urlPath?: string;
     styleAdapterPref?: 'auto' | 'tailwind' | 'cssClass' | 'inline';
     layoutApplyMode?: 'off' | 'safe' | 'full';
     startBackend?: boolean;
@@ -122,6 +172,7 @@ export type QuickStartInfoMessage = {
     devHint?: string;
     installHint?: string;
     notes?: string[];
+    report?: DetectionReport;
   };
 };
 
@@ -133,6 +184,7 @@ export type FromWebviewMessage =
   | UpdateStyleMessage
   | UpdateTextMessage
   | PickTargetFileMessage
+  | AutoInstallDepsMessage
   | QuickStartMessage;
 
 export function isToWebviewMessage(value: unknown): value is ToWebviewMessage {
@@ -161,7 +213,8 @@ export function isToWebviewMessage(value: unknown): value is ToWebviewMessage {
     const devOk = info.devHint === undefined || typeof info.devHint === 'string';
     const installOk = info.installHint === undefined || typeof info.installHint === 'string';
     const appsOk = info.appsDetected === undefined || Array.isArray(info.appsDetected);
-    return hwOk && pmOk && modeOk && urlOk && connectOk && devOk && installOk && appsOk;
+    const reportOk = info.report === undefined || (typeof info.report === 'object' && !!info.report);
+    return hwOk && pmOk && modeOk && urlOk && connectOk && devOk && installOk && appsOk && reportOk;
   }
   return false;
 }

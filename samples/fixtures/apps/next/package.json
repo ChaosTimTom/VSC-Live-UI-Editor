@@ -1,0 +1,10 @@
+{
+  "name": "fixture-next-app",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3003"
+  },
+  "dependencies": {
+    "next": "^14.0.0"
+  }
+}

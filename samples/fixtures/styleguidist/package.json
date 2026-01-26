@@ -1,0 +1,10 @@
+{
+  "name": "fixture-styleguidist",
+  "private": true,
+  "scripts": {
+    "styleguide": "styleguidist server --port 6060"
+  },
+  "devDependencies": {
+    "react-styleguidist": "^13.0.0"
+  }
+}

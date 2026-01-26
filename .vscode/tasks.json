@@ -19,6 +19,22 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "build:all (webview + extension)",
+			"type": "shell",
+			"command": "npm run build && npm run build:extension",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "build:all (webview + extension)",
+			"type": "shell",
+			"command": "npm run build && npm run build:extension",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

@@ -1,0 +1,10 @@
+{
+  "name": "fixture-docusaurus",
+  "private": true,
+  "scripts": {
+    "start": "docusaurus start --port 3000"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "fixture-ladle",
+  "private": true,
+  "scripts": {
+    "ladle": "ladle serve --port 61000"
+  },
+  "devDependencies": {
+    "@ladle/react": "^4.0.0"
+  }
+}

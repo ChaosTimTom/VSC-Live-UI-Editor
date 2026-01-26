@@ -1,0 +1,10 @@
+{
+  "name": "fixture-vitepress",
+  "private": true,
+  "scripts": {
+    "docs:dev": "vitepress dev docs --port 5173"
+  },
+  "devDependencies": {
+    "vitepress": "^1.0.0"
+  }
+}

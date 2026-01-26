@@ -4,6 +4,108 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Live UI Editor — App Mode</title>
+    <style>
+      /* Premium UI animations & effects */
+      @keyframes glow-pulse {
+        0%, 100% { filter: drop-shadow(0 0 20px rgba(0, 229, 217, 0.4)); }
+        50% { filter: drop-shadow(0 0 30px rgba(0, 229, 217, 0.6)); }
+      }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-4px); }
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+      }
+
+      @keyframes border-glow {
+        0% { box-shadow: 0 0 10px rgba(0, 229, 217, 0.3), inset 0 0 10px rgba(0, 229, 217, 0.1); }
+        50% { box-shadow: 0 0 20px rgba(0, 229, 217, 0.5), inset 0 0 20px rgba(0, 229, 217, 0.2); }
+        100% { box-shadow: 0 0 10px rgba(0, 229, 217, 0.3), inset 0 0 10px rgba(0, 229, 217, 0.1); }
+      }
+
+      @keyframes pulse-scale {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+      }
+
+      @keyframes color-shift {
+        0% { color: #00E5D9; }
+        50% { color: #6D28D9; }
+        100% { color: #EC4899; }
+      }
+
+      /* Application of animations to interactive elements */
+      h1 {
+        animation: float 3s ease-in-out infinite;
+      }
+
+      .moveable-control-box {
+        border: 2px solid #00E5D9 !important;
+        box-shadow: 0 0 20px rgba(0, 229, 217, 0.4), inset 0 0 10px rgba(0, 229, 217, 0.1) !important;
+        border-radius: 4px;
+        transition: all 0.3s ease !important;
+      }
+
+      .moveable-control-box:hover {
+        box-shadow: 0 0 30px rgba(0, 229, 217, 0.6), inset 0 0 20px rgba(0, 229, 217, 0.2) !important;
+      }
+
+      .moveable-direction {
+        background: rgba(0, 229, 217, 0.8) !important;
+        border: 2px solid #00E5D9 !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-radius: 2px;
+        box-shadow: 0 0 10px rgba(0, 229, 217, 0.4) !important;
+      }
+
+      .moveable-line {
+        background: rgba(0, 229, 217, 0.3) !important;
+      }
+
+      /* Smooth transitions for interactive elements */
+      button, [role="button"] {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* Text editing focus state */
+      [contenteditable="true"] {
+        outline: 2px solid #00E5D9 !important;
+        outline-offset: 2px;
+        box-shadow: 0 0 20px rgba(0, 229, 217, 0.4) !important;
+      }
+
+      /* Scrollbar styling for premium look */
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: rgba(26, 31, 58, 0.5);
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #6D28D9 0%, #00E5D9 100%);
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 229, 217, 0.2);
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, #7E22CE 0%, #00E5D9 100%);
+        box-shadow: 0 0 20px rgba(0, 229, 217, 0.4);
+      }
+
+      /* Selection highlight */
+      ::selection {
+        background-color: rgba(0, 229, 217, 0.3);
+        color: #FFFFFF;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

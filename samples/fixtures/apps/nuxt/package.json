@@ -1,0 +1,10 @@
+{
+  "name": "fixture-nuxt-app",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev"
+  },
+  "dependencies": {
+    "nuxt": "^3.0.0"
+  }
+}

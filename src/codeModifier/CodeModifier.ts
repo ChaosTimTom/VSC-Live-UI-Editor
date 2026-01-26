@@ -718,9 +718,10 @@ function updateJsxTextAtLine(
 	if (!closing) return input;
 
 	// Ensure there are no nested JSX elements.
-	const innerTextNodes = jsxEl.getChildrenOfKind(SyntaxKind.JsxText);
+	const jsxChildren = jsxEl.getJsxChildren();
+	const innerTextNodes = jsxChildren.filter(n => n.getKind() === SyntaxKind.JsxText);
 	const hasNested =
-		jsxEl.getDescendantsOfKind(SyntaxKind.JsxElement).length > 1 ||
+		jsxEl.getDescendantsOfKind(SyntaxKind.JsxElement).length > 0 ||
 		jsxEl.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0;
 	if (hasNested) return input;
 	if (innerTextNodes.length === 0) return input;
@@ -1401,9 +1402,10 @@ function updateJsxTextByDataLui(
 	const closing = jsxEl.getClosingElement();
 	if (!closing) return input;
 
-	const innerTextNodes = jsxEl.getChildrenOfKind(SyntaxKind.JsxText);
+	const jsxChildren = jsxEl.getJsxChildren();
+	const innerTextNodes = jsxChildren.filter(n => n.getKind() === SyntaxKind.JsxText);
 	const hasNested =
-		jsxEl.getDescendantsOfKind(SyntaxKind.JsxElement).length > 1 ||
+		jsxEl.getDescendantsOfKind(SyntaxKind.JsxElement).length > 0 ||
 		jsxEl.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0;
 	if (hasNested) return input;
 	if (innerTextNodes.length === 0) return input;
@@ -1731,3 +1733,15 @@ function detectAndUpdateI18n(
 		};
 	}
 }
+
+// Test-only exports for deterministic unit testing (no VS Code workspace required).
+// These are internal helpers used by the extension at runtime through the `CodeModifier` class.
+export const __testExports = {
+	ensureJsxClassNamesAtLocation,
+	updateHtmlTextAtLine,
+	updateJsxTextAtLine,
+	updateHtmlInlineStyle,
+	updateJsxInlineStyle,
+	updateJsxInlineStyleByDataLui,
+	updateJsxTextByDataLui,
+};

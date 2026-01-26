@@ -2,16 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.1.9
+## 0.2.2
 
-- App Mode: rebuilt controls as a collapsible sidebar (no more top overlay covering the app).
-- App Mode: now loads a dedicated Vite/React webview page (`appMode.html`).
+- Docs: Help now opens an interactive, navigable Help viewer panel (multi-page docs + search + quick links).
+
+## 0.2.3
+
+- Docs: rewrote help pages into step-by-step beginner walkthroughs.
+- Docs: updated HELP.md to match the new beginner-friendly guidance.
+- Marketplace: improved listing metadata (description, banner, badges, keywords).
 
 ## 0.2.1
 
 - App Mode: collapsible sidebar UI overhaul (React/Vite app-mode page).
 - App Mode: fixed CSP so the webview can load ESM module imports (prevents blank screen).
 - App Mode: added Help button that opens built-in getting-started + troubleshooting doc.
+
+## 0.1.9
+
+- App Mode: rebuilt controls as a collapsible sidebar (no more top overlay covering the app).
+- App Mode: now loads a dedicated Vite/React webview page (`appMode.html`).
 
 ## 0.1.8
 

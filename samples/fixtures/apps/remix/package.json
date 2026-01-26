@@ -1,0 +1,10 @@
+{
+  "name": "fixture-remix-app",
+  "private": true,
+  "scripts": {
+    "dev": "remix dev"
+  },
+  "devDependencies": {
+    "@remix-run/dev": "^2.0.0"
+  }
+}

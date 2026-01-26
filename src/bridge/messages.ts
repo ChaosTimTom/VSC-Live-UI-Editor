@@ -221,15 +221,65 @@ export type PickTargetFileMessage = {
 	kind: 'html' | 'react' | 'any' | 'active' | 'sample';
 };
 
+export type DetectionReportApp = {
+	root: string; // workspace-relative folder
+	label: string;
+	framework: 'vite' | 'next' | 'cra' | 'astro' | 'sveltekit' | 'angular' | 'vue' | 'nuxt' | 'gatsby' | 'remix' | 'generic';
+	devScript?: 'dev' | 'start';
+	scriptName?: string; // npm script name to run (defaults to devScript)
+	defaultPort?: number; // best-effort inferred from scripts/config
+	isTauri?: boolean;
+};
+
+export type DetectionReportHtmlCandidate = {
+	fileId: string; // workspace-relative
+	label: string;
+	score?: number;
+	reason?: string;
+};
+
+export type DetectionReportPreviewTarget = {
+	id: string;
+	label: string;
+	root: string; // workspace-relative folder
+	scriptName?: string; // npm script name to run (e.g. storybook, ladle)
+	defaultPort?: number;
+	urlPath?: string; // e.g. / or /appMode.html
+	kind?: 'storybook' | 'ladle' | 'styleguidist' | 'docusaurus' | 'vitepress' | 'vuepress' | 'docsify' | 'react-cosmos' | 'vite-mpa' | 'custom';
+};
+
+export type DetectionReport = {
+	apps: DetectionReportApp[];
+	htmlCandidates: DetectionReportHtmlCandidate[];
+	previewTargets?: DetectionReportPreviewTarget[];
+	environment?: {
+		isRemote?: boolean;
+		isWsl?: boolean;
+		isContainer?: boolean;
+	};
+};
+
+export type AutoInstallDepsMessage = {
+	command: 'autoInstallDeps';
+	root?: string; // workspace-relative folder; defaults to workspace root
+};
+
 export type QuickStartMessage = {
 	command: 'quickStart';
 	mode: 'static' | 'app';
 	static?: {
-		target?: 'htmlPicker' | 'active' | 'sample';
+		target?: 'htmlPicker' | 'active' | 'sample' | 'file';
+		fileId?: string; // workspace-relative (when target==='file')
 	};
 	app?: {
 		connect?: 'integrated' | 'external' | 'existing';
 		url?: string;
+		appRoot?: string; // workspace-relative folder
+		framework?: 'vite' | 'next' | 'cra' | 'astro' | 'sveltekit' | 'angular' | 'vue' | 'nuxt' | 'gatsby' | 'remix' | 'generic';
+		devScript?: 'dev' | 'start';
+		scriptName?: string; // arbitrary npm script override (e.g. storybook)
+		defaultPort?: number; // override default port inference
+		urlPath?: string; // optional path to open (e.g. /iframe.html)
 		styleAdapterPref?: 'auto' | 'tailwind' | 'cssClass' | 'inline';
 		layoutApplyMode?: 'off' | 'safe' | 'full';
 		startBackend?: boolean;
@@ -248,6 +298,7 @@ export type QuickStartInfoMessage = {
 		devHint?: string;
 		installHint?: string;
 		notes?: string[];
+		report?: DetectionReport;
 	};
 };
 
@@ -274,6 +325,7 @@ export type FromWebviewMessage =
 	| OpenHelpMessage
 	| OpenAppModeMessage
 	| PickTargetFileMessage
+	| AutoInstallDepsMessage
 	| QuickStartMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
@@ -288,13 +340,19 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 	if (v.command === 'pickTargetFile') {
 		return v.kind === 'html' || v.kind === 'react' || v.kind === 'any' || v.kind === 'active' || v.kind === 'sample';
 	}
+	if (v.command === 'autoInstallDeps') {
+		return v.root === undefined || typeof v.root === 'string';
+	}
 	if (v.command === 'quickStart') {
 		if (!(v.mode === 'static' || v.mode === 'app')) return false;
 		if (v.mode === 'static') {
 			if (v.static === undefined) return true;
 			if (!v.static || typeof v.static !== 'object') return false;
 			const s = v.static as Record<string, unknown>;
-			return s.target === undefined || s.target === 'htmlPicker' || s.target === 'active' || s.target === 'sample';
+			const targetOk = s.target === undefined || s.target === 'htmlPicker' || s.target === 'active' || s.target === 'sample' || s.target === 'file';
+			if (!targetOk) return false;
+			if (s.target === 'file') return typeof s.fileId === 'string' && !!String(s.fileId).trim();
+			return true;
 		}
 		// app
 		if (v.app === undefined) return true;
@@ -302,10 +360,16 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		const a = v.app as Record<string, unknown>;
 		const connectOk = a.connect === undefined || a.connect === 'integrated' || a.connect === 'external' || a.connect === 'existing';
 		const urlOk = a.url === undefined || typeof a.url === 'string';
+		const rootOk = a.appRoot === undefined || typeof a.appRoot === 'string';
+		const fwOk = a.framework === undefined || a.framework === 'vite' || a.framework === 'next' || a.framework === 'cra' || a.framework === 'astro' || a.framework === 'sveltekit' || a.framework === 'angular' || a.framework === 'vue' || a.framework === 'nuxt' || a.framework === 'gatsby' || a.framework === 'remix' || a.framework === 'generic';
+		const scriptOk = a.devScript === undefined || a.devScript === 'dev' || a.devScript === 'start';
+		const scriptNameOk = a.scriptName === undefined || typeof a.scriptName === 'string';
+		const portOk = a.defaultPort === undefined || (typeof a.defaultPort === 'number' && Number.isFinite(a.defaultPort) && a.defaultPort > 0);
+		const pathOk = a.urlPath === undefined || typeof a.urlPath === 'string';
 		const styleOk = a.styleAdapterPref === undefined || a.styleAdapterPref === 'auto' || a.styleAdapterPref === 'tailwind' || a.styleAdapterPref === 'cssClass' || a.styleAdapterPref === 'inline';
 		const layoutOk = a.layoutApplyMode === undefined || a.layoutApplyMode === 'off' || a.layoutApplyMode === 'safe' || a.layoutApplyMode === 'full';
 		const backendOk = a.startBackend === undefined || typeof a.startBackend === 'boolean';
-		return connectOk && urlOk && styleOk && layoutOk && backendOk;
+		return connectOk && urlOk && rootOk && fwOk && scriptOk && scriptNameOk && portOk && pathOk && styleOk && layoutOk && backendOk;
 	}
 	if (v.command === 'elementClicked') {
 		const colOk = v.column === undefined || typeof v.column === 'number';

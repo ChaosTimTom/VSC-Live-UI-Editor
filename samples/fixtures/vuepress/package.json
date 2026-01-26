@@ -1,0 +1,10 @@
+{
+  "name": "fixture-vuepress",
+  "private": true,
+  "scripts": {
+    "docs:dev": "vuepress dev docs --port 8080"
+  },
+  "devDependencies": {
+    "vuepress": "^2.0.0"
+  }
+}

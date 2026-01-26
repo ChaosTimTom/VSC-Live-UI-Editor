@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { getWebviewHtml } from './webviewHtml';
-import { isFromWebviewMessage, type ToWebviewMessage } from './bridge/messages';
+import { isFromWebviewMessage, type DetectionReport, type DetectionReportApp, type DetectionReportHtmlCandidate, type ToWebviewMessage } from './bridge/messages';
 import { injectSourceMetadataRobust } from './injector/robustInjector';
 import { loadTargetFile } from './workspace/loadTargetFile';
 import { CodeModifier } from './codeModifier/CodeModifier';
@@ -16,6 +16,11 @@ import { startDetachedDevServerWindows } from './appMode/detachedDevServer';
 import { detectStyleSystems, tailwindTokensFromStylePatch, type StyleAdapterId, type StyleAdapterPreference } from './appMode/styleAdapters';
 import * as path from 'path';
 import * as cp from 'child_process';
+import { HelpPanel } from './help/helpPanel';
+import { detectPreviewTargetsFromPackages, type PackageInfo } from './detect/previewTargets';
+import { buildDetectedAppsFromCandidates, defaultPortForFramework } from './detect/apps';
+import { rankHtmlCandidates } from './detect/htmlCandidates';
+import { buildQuickStartNotes, buildRecommendedUrl } from './detect/recommendation';
 
 export function activate(context: vscode.ExtensionContext) {
 	const output = vscode.window.createOutputChannel('Live UI Editor');
@@ -466,62 +471,129 @@ export default function liveUiEditorBabelPlugin(babel) {
 				info: {
 					hasWorkspace: false,
 					recommendedMode: 'html',
+					report: {
+						apps: [],
+						htmlCandidates: [],
+						previewTargets: [],
+					},
 					notes: ['Open a folder to enable App Mode auto-detection.'],
 				}
 			};
 		}
 
+		const detectEnvironment = (): NonNullable<DetectionReport['environment']> => {
+			const remoteName = vscode.env.remoteName;
+			const isRemote = !!remoteName;
+			const isWsl = !!process.env.WSL_DISTRO_NAME || !!process.env.WSL_INTEROP;
+			// Best-effort container hints.
+			const isContainer = !!process.env.REMOTE_CONTAINERS || !!process.env.DEVCONTAINER || !!process.env.CONTAINER || !!process.env.CODESPACES;
+			return {
+				isRemote: isRemote || undefined,
+				isWsl: isWsl || undefined,
+				isContainer: isContainer || undefined,
+			};
+		};
+
+		const listHtmlCandidates = async (): Promise<DetectionReportHtmlCandidate[]> => {
+			// Heuristic ranking: index.html and /public/ score higher. Keep dist/build too.
+			const files = await vscode.workspace.findFiles(
+				'**/*.{html,htm}',
+				'**/{node_modules,.git,.hg,.svn}/**',
+				40
+			);
+			const rels = files.map(uri => vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/'));
+			return rankHtmlCandidates(rels, 12);
+		};
+
+		const readJson = async (uri: vscode.Uri): Promise<any | undefined> => {
+			try {
+				const bytes = await vscode.workspace.fs.readFile(uri);
+				return JSON.parse(Buffer.from(bytes).toString('utf8'));
+			} catch {
+				return undefined;
+			}
+		};
+
+		const listPreviewTargets = async (): Promise<DetectionReport['previewTargets']> => {
+			const pkgs = await vscode.workspace.findFiles('**/package.json', '**/{node_modules,.git,.hg,.svn}/**', 80);
+			const hasHtmlUnderRoot = async (rootRel: string): Promise<boolean> => {
+				// Quick check for Vite multi-page / webview UI packages.
+				const pat = rootRel ? `${rootRel.replace(/\\/g, '/')}/**/*.{html,htm}` : '**/*.{html,htm}';
+				const files = await vscode.workspace.findFiles(pat, '**/{node_modules,.git,.hg,.svn}/**', 1);
+				return files.length > 0;
+			};
+
+			const packages: PackageInfo[] = [];
+			for (const pkgUri of pkgs) {
+				const rootUri = vscode.Uri.joinPath(pkgUri, '..');
+				const relRoot = vscode.workspace.asRelativePath(rootUri, false).replace(/\\/g, '/');
+				const pkg = await readJson(pkgUri);
+				if (!pkg || typeof pkg !== 'object') continue;
+				const scripts = (pkg.scripts && typeof pkg.scripts === 'object') ? (pkg.scripts as Record<string, unknown>) : {};
+				const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) } as Record<string, unknown>;
+				if (!Object.keys(scripts).length && !Object.keys(deps).length) continue;
+
+				const hasDep = (name: string) => Object.prototype.hasOwnProperty.call(deps, name);
+				const isViteLike = hasDep('vite') || hasDep('@vitejs/plugin-react') || hasDep('@vitejs/plugin-vue');
+				const isHarnessLike = (() => {
+					const common = ['storybook', 'start-storybook', 'ladle', 'styleguidist', 'styleguide', 'docusaurus', 'vitepress', 'vuepress', 'docsify', 'cosmos'];
+					for (const [k, v] of Object.entries(scripts)) {
+						if (!k || typeof v !== 'string') continue;
+						const key = k.toLowerCase();
+						if (common.some(c => key.includes(c))) return true;
+						const cmd = v.toLowerCase();
+						if (common.some(c => cmd.includes(c))) return true;
+					}
+					return false;
+				})();
+
+				const hasHtml = (!isHarnessLike && isViteLike) ? (await hasHtmlUnderRoot(relRoot)) : undefined;
+				packages.push({ root: relRoot, pkg, hasHtml });
+			}
+
+			return detectPreviewTargetsFromPackages(packages);
+		};
+
 		const pm = await detectPackageManager();
 		const installHint = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn' : 'npm install';
 		const devHint = pm === 'pnpm' ? 'pnpm dev' : pm === 'yarn' ? 'yarn dev' : 'npm run dev';
 
-		const [vite, next, generic] = await Promise.all([findViteAppCandidates(), findNextAppCandidates(), findGenericAppCandidates()]);
-		const appsDetected = [...next, ...vite, ...generic]
-			.map(a => ({ framework: a.framework, label: a.label || vscode.workspace.asRelativePath(a.root, false) || a.root.fsPath }))
-			.slice(0, 6);
-		const hasApps = appsDetected.length > 0;
-		const preferredFramework = appsDetected[0]?.framework;
+		const [vite, next, generic, htmlCandidates, previewTargets] = await Promise.all([
+			findViteAppCandidates(),
+			findNextAppCandidates(),
+			findGenericAppCandidates(),
+			listHtmlCandidates(),
+			listPreviewTargets(),
+		]);
+		const env = detectEnvironment();
 		const host = '127.0.0.1';
-		const defaultPortForFramework = (fw: AppFramework | undefined): number => {
-			switch (fw) {
-				case 'next':
-				case 'cra':
-				case 'nuxt':
-				case 'remix':
-					return 3000;
-				case 'vite':
-				case 'sveltekit':
-					return 5173;
-				case 'astro':
-					return 4321;
-				case 'angular':
-					return 4200;
-				case 'vue':
-					return 8080;
-				case 'gatsby':
-					return 8000;
-				default:
-					return 3000;
-			}
-		};
-		const recommendedUrl = hasApps
-			? `http://${host}:${defaultPortForFramework(preferredFramework)}`
-			: undefined;
+
+		const appCandidatesRaw = [...next, ...vite, ...generic];
+		const detectedApps: DetectionReportApp[] = await buildDetectedAppsFromCandidates(appCandidatesRaw, {
+			relRootOf: (root) => vscode.workspace.asRelativePath(root, false).replace(/\\/g, '/'),
+			readPackageJsonAtRoot: async (root) => readJson(vscode.Uri.joinPath(root, 'package.json')),
+			limit: 6,
+		});
+		const appsDetected = detectedApps.map(a => ({ framework: a.framework, label: a.label }));
+		const hasApps = detectedApps.length > 0;
+		const hasPreviews = Array.isArray(previewTargets) && previewTargets.length > 0;
+		const recommendedUrl = buildRecommendedUrl({ host, apps: detectedApps, previewTargets });
 		const recommendedConnect = recommendedUrl
 			? ((await waitForHttpReady(recommendedUrl, 800)) ? 'existing' : 'integrated')
 			: undefined;
+		const notes = buildQuickStartNotes({
+			env,
+			appsDetectedCount: appsDetected.length,
+			hasAppsOrPreviews: (hasApps || hasPreviews),
+			hasHtmlCandidates: htmlCandidates.length > 0,
+		});
 
-		const notes: string[] = [];
-		if (hasApps && appsDetected.length > 1) {
-			notes.push('Multiple apps detected. App Mode will ask which one to use.');
-		}
-		if (!hasApps) {
-			// Lightweight hint: do we see any HTML at all?
-			const htmlFiles = await vscode.workspace.findFiles('**/*.{html,htm}', '**/node_modules/**', 1);
-			if (htmlFiles.length === 0) {
-				notes.push('No Vite/Next app detected. Use HTML mode, or start App Mode manually if your framework is unsupported.');
-			}
-		}
+		const report: DetectionReport = {
+			apps: detectedApps,
+			htmlCandidates,
+			previewTargets,
+			environment: env,
+		};
 
 		return {
 			command: 'quickStartInfo',
@@ -529,12 +601,13 @@ export default function liveUiEditorBabelPlugin(babel) {
 				hasWorkspace,
 				packageManager: pm,
 				appsDetected: hasApps ? appsDetected : undefined,
-				recommendedMode: hasApps ? 'app' : 'html',
+				recommendedMode: (hasApps || hasPreviews) ? 'app' : 'html',
 				recommendedUrl,
 				recommendedConnect,
 				installHint,
 				devHint,
 				notes: notes.length ? notes : undefined,
+				report,
 			}
 		};
 	};
@@ -564,6 +637,46 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 		panel.webview.onDidReceiveMessage(async (message: unknown) => {
 			if (!isFromWebviewMessage(message)) return;
+
+			if (message.command === 'autoInstallDeps') {
+				const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+				if (!workspaceFolder) {
+					vscode.window.showErrorMessage('Live UI Editor: Open a folder first.');
+					return;
+				}
+				const rel = (typeof (message as any).root === 'string' && (message as any).root.trim()) ? (message as any).root.trim() : '';
+				if (rel && isLikelyUnsafeRelativePath(rel)) {
+					vscode.window.showErrorMessage('Live UI Editor: Unsafe install path.');
+					return;
+				}
+				const cwdUri = rel ? vscode.Uri.joinPath(workspaceFolder.uri, rel) : workspaceFolder.uri;
+				if (!isWithinBasePath(workspaceFolder.uri.fsPath, cwdUri.fsPath)) {
+					vscode.window.showErrorMessage('Live UI Editor: Install path must be inside the workspace.');
+					return;
+				}
+				try {
+					await vscode.workspace.fs.stat(vscode.Uri.joinPath(cwdUri, 'package.json'));
+				} catch {
+					vscode.window.showErrorMessage('Live UI Editor: No package.json found in that folder.');
+					return;
+				}
+				const confirm = await vscode.window.showWarningMessage(
+					`Live UI Editor: Run dependency install in “${rel || '.'}”?`,
+					{ modal: true },
+					'Install',
+					'Cancel'
+				);
+				if (confirm !== 'Install') return;
+				const pm = await detectPackageManager();
+				const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn' : 'npm install';
+				const termName = 'Live UI Setup: Install';
+				let term = vscode.window.terminals.find(t => t.name === termName);
+				if (!term) term = vscode.window.createTerminal({ name: termName, cwd: cwdUri.fsPath });
+				term.show(true);
+				term.sendText(installCmd, true);
+				vscode.window.showInformationMessage(`Live UI Editor: Installing dependencies (${installCmd})...`);
+				return;
+			}
 
 			if (message.command === 'pickTargetFile') {
 				const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -628,6 +741,33 @@ export default function liveUiEditorBabelPlugin(babel) {
 						panel.webview.postMessage({ command: 'setDocument', file: fileId, html: injected } satisfies ToWebviewMessage);
 						return;
 					}
+					if (target === 'file') {
+						const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+						if (!workspaceFolder) {
+							vscode.window.showErrorMessage('Live UI Editor: Open a folder first.');
+							return;
+						}
+						const raw = String(message.static?.fileId ?? '').trim();
+						if (!raw) return;
+						if (isLikelyUnsafeRelativePath(raw)) {
+							vscode.window.showErrorMessage('Live UI Editor: Unsafe file path.');
+							return;
+						}
+						const uri = vscode.Uri.joinPath(workspaceFolder.uri, raw);
+						try {
+							await vscode.workspace.fs.stat(uri);
+						} catch {
+							vscode.window.showErrorMessage('Live UI Editor: File not found.');
+							return;
+						}
+						const doc = await vscode.workspace.openTextDocument(uri);
+						const fileId = vscode.workspace.asRelativePath(uri, false);
+						lastLoadedUri = uri;
+						lastLoadedFileId = fileId;
+						const injected = injectSourceMetadataRobust(doc.getText(), fileId, { cacheKey: uri.toString(), version: doc.version });
+						panel.webview.postMessage({ command: 'setDocument', file: fileId, html: injected } satisfies ToWebviewMessage);
+						return;
+					}
 					if (target === 'active') {
 						const active = vscode.window.activeTextEditor?.document;
 						if (!active || active.uri.scheme !== 'file') {
@@ -662,6 +802,12 @@ export default function liveUiEditorBabelPlugin(babel) {
 					quickStart: true,
 					connect: app.connect,
 					url: app.url,
+					appRoot: (app as any).appRoot,
+					appFramework: (app as any).framework,
+					appDevScript: (app as any).devScript,
+					scriptName: (app as any).scriptName,
+					defaultPort: (app as any).defaultPort,
+					urlPath: (app as any).urlPath,
 					styleAdapterPref: app.styleAdapterPref,
 					layoutApplyMode: app.layoutApplyMode,
 					startBackend: app.startBackend,
@@ -673,9 +819,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 			if (message.command === 'openHelp') {
 				try {
-					const helpUri = vscode.Uri.joinPath(context.extensionUri, 'HELP.md');
-					const doc = await vscode.workspace.openTextDocument(helpUri);
-					await vscode.window.showTextDocument(doc, { preview: false });
+					await HelpPanel.show(context);
 				} catch (err) {
 					output.appendLine(`[help:error] ${String(err)}`);
 					vscode.window.showErrorMessage('Live UI Editor: Failed to open Help. See Output → Live UI Editor.');
@@ -814,12 +958,37 @@ export default function liveUiEditorBabelPlugin(babel) {
 			quickStart?: boolean;
 			connect?: 'integrated' | 'external' | 'existing';
 			url?: string;
+			appRoot?: string; // workspace-relative
+			appFramework?: AppFramework;
+			appDevScript?: 'dev' | 'start';
+			scriptName?: string;
+			defaultPort?: number;
+			urlPath?: string;
 			styleAdapterPref?: StyleAdapterPreference;
 			layoutApplyMode?: 'off' | 'safe' | 'full';
 			startBackend?: boolean;
 		};
 		const qs: QuickStartArgs | undefined = (arg && typeof arg === 'object') ? (arg as QuickStartArgs) : undefined;
-		const app = await pickAppCandidate();
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		let app = undefined as any;
+		if (qs?.appRoot && workspaceFolder) {
+			const rel = String(qs.appRoot).trim().replace(/\\/g, '/');
+			if (!isLikelyUnsafeRelativePath(rel)) {
+				const rootUri = vscode.Uri.joinPath(workspaceFolder.uri, rel);
+				if (isWithinBasePath(workspaceFolder.uri.fsPath, rootUri.fsPath)) {
+					const label = vscode.workspace.asRelativePath(rootUri, false);
+					app = {
+						root: rootUri,
+						label,
+						framework: (qs.appFramework ?? 'generic') as AppFramework,
+						devScript: (qs.appDevScript ?? 'dev') as any,
+					};
+				}
+			}
+		}
+		if (!app) {
+			app = await pickAppCandidate();
+		}
 		if (!app) return;
 		const appRoot = app.root;
 		const appFramework: AppFramework = app.framework;
@@ -853,28 +1022,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 			});
 		};
 
-		const defaultPortForFramework = (framework: AppFramework): number => {
-			switch (framework) {
-				case 'next':
-				case 'cra':
-				case 'nuxt':
-				case 'remix':
-					return 3000;
-				case 'vite':
-				case 'sveltekit':
-					return 5173;
-				case 'astro':
-					return 4321;
-				case 'angular':
-					return 4200;
-				case 'vue':
-					return 8080;
-				case 'gatsby':
-					return 8000;
-				default:
-					return 3000;
-			}
-		};
+		const defaultPort = (qs?.defaultPort && typeof qs.defaultPort === 'number' && Number.isFinite(qs.defaultPort) && qs.defaultPort > 0)
+			? qs.defaultPort
+			: defaultPortForFramework(appFramework);
 		const supportsPortArgs = (framework: AppFramework): boolean => {
 			return framework === 'vite' || framework === 'next' || framework === 'sveltekit' || framework === 'astro';
 		};
@@ -911,18 +1061,38 @@ export default function liveUiEditorBabelPlugin(babel) {
 		};
 
 		// 1) Try to auto-connect first (unless Quick Start provided an explicit URL).
-		const qsUrl = (qs?.url && typeof qs.url === 'string' && qs.url.trim()) ? qs.url.trim() : undefined;
-		let origin = qsUrl ? qsUrl : await autoDetectRunning();
+		const qsUrlRaw = (qs?.url && typeof qs.url === 'string' && qs.url.trim()) ? qs.url.trim() : undefined;
+		let initialPath = '';
+		let qsOrigin: string | undefined;
+		if (qsUrlRaw) {
+			try {
+				const u = new URL(qsUrlRaw);
+				qsOrigin = u.origin;
+				const path = `${u.pathname || '/'}${u.search || ''}${u.hash || ''}`;
+				initialPath = (path && path !== '/') ? path : '';
+			} catch {
+				// Treat as origin-only string.
+				qsOrigin = qsUrlRaw;
+			}
+		}
+		if (!initialPath && qs?.urlPath && typeof qs.urlPath === 'string') {
+			const p = qs.urlPath.trim();
+			if (p && p.startsWith('/')) initialPath = (p === '/') ? '' : p;
+		}
+		let origin = qsOrigin ? qsOrigin : await autoDetectRunning();
 		let port: number;
-		let launchMode: 'external' | 'integrated' | 'existing' = qsUrl ? 'existing' : ((qs?.connect as any) ?? 'existing');
-		if (origin && !qsUrl) {
-			// If a server is already running, don't start another one.
+		// Prefer explicit quickStart connect choice when provided (even if url was provided).
+		let launchMode: 'external' | 'integrated' | 'existing' = (qs?.quickStart && qs.connect)
+			? (qs.connect as any)
+			: (qsOrigin ? 'existing' : ((qs?.connect as any) ?? 'existing'));
+		if (origin && !qsOrigin && !(qs?.quickStart && qs.connect)) {
+			// If we auto-detected a running server, don't start another one.
 			launchMode = 'existing';
 		}
 
 		// 2) If not running, choose a good default port and ask what to do (unless Quick Start specified).
 		if (!origin) {
-			const preferredPort = defaultPortForFramework(appFramework);
+			const preferredPort = defaultPort;
 			if (supportsPortArgs(appFramework)) {
 				if (appFramework === 'next') {
 					port = (await isPortFree(preferredPort)) ? preferredPort : await getFreePort();
@@ -952,7 +1122,13 @@ export default function liveUiEditorBabelPlugin(babel) {
 			}
 		}
 
-		const devPort = Number(origin.split(':').pop());
+		const devPort = (() => {
+			try {
+				return Number(new URL(origin).port || defaultPort);
+			} catch {
+				return defaultPort;
+			}
+		})();
 		const devArgs = supportsPortArgs(appFramework)
 			? (appFramework === 'next'
 				? `--hostname ${host} --port ${devPort}`
@@ -961,7 +1137,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 					: `--host ${host} --port ${devPort} --strictPort`))
 			: undefined;
 
-		const runScript = (scriptName: 'dev' | 'start', args?: string): string => {
+		const runScript = (scriptName: string, args?: string): string => {
 			if (!args || !args.trim()) {
 				if (pkgManager === 'pnpm') return `pnpm ${scriptName}`;
 				if (pkgManager === 'yarn') return `yarn ${scriptName}`;
@@ -972,7 +1148,10 @@ export default function liveUiEditorBabelPlugin(babel) {
 			return scriptName === 'start' ? `npm start -- ${args}` : `npm run ${scriptName} -- ${args}`;
 		};
 
-		const devCommand = runScript(appDevScript, devArgs);
+		const scriptName = (qs?.scriptName && typeof qs.scriptName === 'string' && qs.scriptName.trim())
+			? qs.scriptName.trim()
+			: appDevScript;
+		const devCommand = runScript(scriptName, devArgs);
 
 		if (launchMode === 'external') {
 			const launched = startDetachedDevServerWindows({
@@ -1533,8 +1712,19 @@ export default function liveUiEditorBabelPlugin(babel) {
 			);
 			panel = created;
 			currentPanel = created;
+			let iframeUrl = `${currentAppProxy!.proxyOrigin}${initialPath}`;
+			// In Remote SSH / Dev Containers / WSL, the webview runs locally but the extension host is remote.
+			// Use VS Code's port-forwarding aware URL so the webview can reach the proxy server.
+			if (vscode.env.remoteName) {
+				try {
+					const external = await vscode.env.asExternalUri(vscode.Uri.parse(iframeUrl));
+					iframeUrl = external.toString();
+				} catch {
+					// Fall back to the direct URL.
+				}
+			}
 			created.webview.html = await getAppModeWebviewHtml(created.webview, context.extensionUri, {
-				iframeUrl: currentAppProxy!.proxyOrigin,
+				iframeUrl,
 				appLabel: vscode.workspace.asRelativePath(appRoot!, false),
 				tauriShimEnabled,
 			});
@@ -1596,9 +1786,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 				if (!isFromWebviewMessage(message)) return;
 				if (message.command === 'openHelp') {
 					try {
-						const helpUri = vscode.Uri.joinPath(context.extensionUri, 'HELP.md');
-						const doc = await vscode.workspace.openTextDocument(helpUri);
-						await vscode.window.showTextDocument(doc, { preview: false });
+						await HelpPanel.show(context);
 					} catch (err) {
 						output.appendLine(`[appMode:help:error] ${String(err)}`);
 						vscode.window.showErrorMessage('Live UI Editor (App Mode): Failed to open Help. See Output → Live UI Editor.');
