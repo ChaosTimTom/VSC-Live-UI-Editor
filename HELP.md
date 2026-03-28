@@ -327,6 +327,28 @@ Type one of these in VS Code Chat:
 
 - `@ui-wizard use an image as the background` (opens a file picker)
 
+### Page redesign (Figma-like) — no element selection needed
+
+You can ask UI Wizard to redesign an entire page. No element selection is required.
+
+Examples:
+
+- `@ui-wizard redesign this page as a modern SaaS landing page`
+- `@ui-wizard give this page a dark theme`
+- `@ui-wizard restyle the entire layout as a portfolio`
+- `@ui-wizard turn this into a marketing site`
+- `@ui-wizard apply a minimalist theme to the whole page`
+
+How it works:
+
+1. Type a page-level prompt ("redesign", "restyle", "overhaul", "give this page a … theme", etc.).
+2. CSS streams into the live viewport in real-time (~300 ms flushes) so you can watch the transformation.
+3. When it finishes, review the result.
+4. Say `apply` (or `yes`, `looks good`, `ship it`) to bake the CSS into your source file.
+5. Say `cancel` (or `no`, `revert`, `undo`) to discard and revert.
+
+Tip: You can also describe what kind of site it is for better results — "this is a marketing site, keep all the current features but make it look professional".
+
 ---
 
 ---

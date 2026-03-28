@@ -1,7 +1,7 @@
 {
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
-  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next/Angular/Astro/SvelteKit and more). Click-to-code, drag/resize, inline text editing, property inspector, element tree, CSS cascade, diff preview, responsive breakpoints, undo/redo, and the @ui-wizard chat participant.",
+  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next/Angular/Astro/SvelteKit and more). Click-to-code, drag/resize, inline text editing, property inspector, element tree, CSS cascade, diff preview, responsive breakpoints, undo/redo, page redesign (Figma-like), and the @ui-wizard chat participant.",
   "version": "0.3.2",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
@@ -78,7 +78,9 @@
     "stable ids",
     "apply to code",
     "chat",
-    "ui wizard"
+    "ui wizard",
+    "page redesign",
+    "figma"
   ],
   "activationEvents": [
     "onCommand:liveUI.open",
@@ -102,7 +104,7 @@
         "id": "live-ui.ui-wizard",
         "name": "ui-wizard",
         "fullName": "UI Wizard",
-        "description": "Edit the currently selected Live UI element via natural language (layout, style suggestions, bulk apply, structure helpers).",
+        "description": "Edit UI via natural language — element styles, layout, bulk apply, structure helpers, and full page redesign (Figma-like with live CSS streaming).",
         "isSticky": true
       }
     ],

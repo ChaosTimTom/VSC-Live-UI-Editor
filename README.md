@@ -171,6 +171,20 @@ Browse and search the full DOM tree. Open the diff panel to see a before/after c
 
 </td>
 </tr>
+<tr>
+<td colspan="2">
+
+### 🎨 Page Redesign (Figma-like)
+Ask `@ui-wizard` to redesign an **entire page** — no element selection needed. Describe the look you want in plain language and watch CSS stream into the live viewport in real-time. Review the result, then approve to bake it into your source file or reject to revert.
+
+```
+@ui-wizard redesign this page as a modern SaaS landing page
+@ui-wizard give it a dark theme with glassmorphic cards
+@ui-wizard restyle the entire layout as a portfolio
+```
+
+</td>
+</tr>
 </table>
 
 ---
@@ -291,7 +305,13 @@ Help:
 - `@ui-wizard commands for bulk`
 - `@ui-wizard commands for structure`
 - `@ui-wizard commands for images`
+**Page redesign** (no element selection needed):
 
+- `@ui-wizard redesign this page as a modern marketing site`
+- `@ui-wizard give this a dark theme`
+- `@ui-wizard restyle the entire layout as a blog`
+
+CSS streams into the viewport in real-time. After reviewing, say `apply` to save or `cancel` to revert.
 ### 3) Fix “Identity: Unmapped” (highly recommended)
 
 If the sidebar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
