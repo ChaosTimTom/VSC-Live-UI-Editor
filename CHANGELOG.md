@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.2
+
+### Features
+- **Page Redesign (Figma-like):** Ask `@ui-wizard` to redesign an entire page — "redesign this page as a modern SaaS landing page", "give it a dark theme", etc. CSS streams into the live viewport in real-time (~300 ms flushes), then you can approve or reject the result. On approval the CSS is baked into a full file rewrite.
+- New message pipeline: `injectPageCss` / `clearPageCss` flows through extension → webview → iframe for both Static HTML and App Mode.
+
+### Bug fixes
+- Fixed `isToWebviewMessage` validator missing runtime checks for `injectPageCss`, `clearPageCss`, `workspaceConfig`, and `diffResult` message types (silently returned `false`).
+
+### Tests
+- Added 116 new tests for page redesign: intent detection (27+17+9 cases), apply/reject parsing, `stripCodeFences` / `stripJsonFences`, and bridge message validation with edge cases. Total: 143 tests across 10 files.
+
 ## 0.3.1
 
 ### Bug fixes

@@ -254,6 +254,10 @@ export const injectedClientScript = String.raw`
 		previewStyleEl.id = 'live-ui-editor-preview-style';
 		try { (document.head || document.documentElement).appendChild(previewStyleEl); } catch {}
 
+		var pageCssEl = createEl('style');
+		pageCssEl.id = 'live-ui-editor-page-css';
+		try { (document.head || document.documentElement).appendChild(pageCssEl); } catch {}
+
 		function cssPropNameFromJs(k) {
 			return String(k || '')
 				.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -782,6 +786,8 @@ export const injectedClientScript = String.raw`
 			if (data.type === 'live-ui-editor:setDebug') return setDebug(data);
 			if (data.type === 'live-ui-editor:previewStyle') return applyPreview(data.style || {});
 			if (data.type === 'live-ui-editor:clearPreview') return clearPreview();
+			if (data.type === 'live-ui-editor:injectPageCss') { pageCssEl.textContent = data.css || ''; return; }
+			if (data.type === 'live-ui-editor:clearPageCss') { pageCssEl.textContent = ''; return; }
 			if (data.type === 'live-ui-editor:requestTargets') {
 				try {
 					var selector = String(data.selector || '').trim();

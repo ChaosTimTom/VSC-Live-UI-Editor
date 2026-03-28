@@ -2,7 +2,7 @@
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
   "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next/Angular/Astro/SvelteKit and more). Click-to-code, drag/resize, inline text editing, property inspector, element tree, CSS cascade, diff preview, responsive breakpoints, undo/redo, and the @ui-wizard chat participant.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "markdown": "github",

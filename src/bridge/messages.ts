@@ -375,7 +375,16 @@ export type DiffResultMessage = {
 	modified: string;
 };
 
-export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage;
+export type InjectPageCssMessage = {
+	command: 'injectPageCss';
+	css: string;
+};
+
+export type ClearPageCssMessage = {
+	command: 'clearPageCss';
+};
+
+export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage | InjectPageCssMessage | ClearPageCssMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
 	| ElementSelectedMessage

@@ -980,6 +980,140 @@ async function applyUiEdit(codeModifier: CodeModifier, selected: SelectedElement
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Page-level redesign (Figma-like)
+// ---------------------------------------------------------------------------
+
+function isPageRedesign(prompt: string): boolean {
+	const p = prompt.toLowerCase();
+	// Match broad page-level intent — "redo this page", "redesign the whole thing", etc.
+	if (/\b(redo|redesign|restyle|revamp|overhaul|rework|transform|reimagine|rebuild)\b.*\b(page|site|layout|everything|whole|entire)\b/.test(p)) return true;
+	if (/\b(page|site|layout|everything|whole|entire)\b.*\b(redo|redesign|restyle|revamp|overhaul|rework|transform|reimagine|rebuild)\b/.test(p)) return true;
+	// "make this look like a ..." (high-level design direction)
+	if (/\bmake\s+(this|it|the\s+(page|site|layout))\s+(look|feel)\s+(like|more)\b/.test(p)) return true;
+	// "turn this into a marketing/landing/portfolio site"
+	if (/\b(turn|convert|change)\s+(this|it)\s+into\s+a\b/.test(p)) return true;
+	// "this is a ... site, make it professional/modern/clean"
+	if (/\bthis\s+is\s+a\b.*\b(make|keep)\b/.test(p)) return true;
+	// "give this page a modern look"
+	if (/\bgive\s+(this|the)\s+(page|site|layout)\b/.test(p)) return true;
+	// "apply a ... theme to this page"
+	if (/\bapply\s+a\b.*\btheme\b/.test(p)) return true;
+	// "style the whole page"
+	if (/\bstyle\s+(the\s+)?(whole|entire|full)\s+(page|site|layout)\b/.test(p)) return true;
+	return false;
+}
+
+function isPageRedesignApply(prompt: string): boolean {
+	const p = prompt.toLowerCase().trim();
+	return /^\s*(apply|yes|go|do it|looks good|ship it|save)\b/i.test(p);
+}
+
+function isPageRedesignReject(prompt: string): boolean {
+	const p = prompt.toLowerCase().trim();
+	return /^\s*(no|cancel|reject|nevermind|revert|undo|clear)\b/i.test(p);
+}
+
+async function generatePageCssWithStreaming(args: {
+	model: vscode.LanguageModelChat;
+	userPrompt: string;
+	pageSource: string;
+	fileExtension: string;
+	token: vscode.CancellationToken;
+	onCssChunk: (cssSoFar: string) => void;
+}): Promise<string> {
+	const isComponent = /\.(tsx|jsx|ts|js|vue|svelte)$/i.test(args.fileExtension);
+
+	const system =
+		`You are an expert UI designer and front-end engineer. The user wants to redesign/restyle a page. ` +
+		`Your job is to produce a comprehensive CSS stylesheet that transforms the page's visual appearance ` +
+		`according to the user's instructions.\n\n` +
+		`Rules:\n` +
+		`- Output ONLY valid CSS. No markdown, no backticks, no commentary.\n` +
+		`- Use the existing HTML structure — target elements via tag names, classes, IDs, and semantic selectors.\n` +
+		`- Include a variety of modern CSS: colors, typography, spacing, borders, shadows, gradients, transitions.\n` +
+		`- Make it comprehensive — style the body/html background, headings, paragraphs, buttons, links, inputs, cards, containers, navbars, footers, etc.\n` +
+		`- Use !important sparingly only where needed to override inline styles.\n` +
+		`- Prefer CSS custom properties (variables) at :root for theming.\n` +
+		`- Include responsive considerations (@media queries) if relevant.\n` +
+		`- The CSS will be injected as an override stylesheet, so it should be self-contained.\n` +
+		(isComponent
+			? `- This is a component file (${args.fileExtension}). Target className-based selectors and common component patterns.\n`
+			: `- This is an HTML file. Target standard HTML elements and any classes/IDs you see in the source.\n`);
+
+	const pageSummary = args.pageSource.length > 12000
+		? args.pageSource.slice(0, 12000) + '\n/* ... truncated ... */'
+		: args.pageSource;
+
+	const user =
+		`Page source (${args.fileExtension}):\n\n${pageSummary}\n\n` +
+		`User request: ${args.userPrompt}\n\n` +
+		`Output ONLY the CSS stylesheet. No explanation.`;
+
+	const messages = [
+		vscode.LanguageModelChatMessage.User(system),
+		vscode.LanguageModelChatMessage.User(user),
+	];
+
+	const chatResponse = await args.model.sendRequest(messages, {}, args.token);
+	let fullCss = '';
+	let lastFlush = Date.now();
+
+	for await (const fragment of chatResponse.text) {
+		fullCss += fragment;
+		// Flush to viewport every ~300ms for live streaming effect.
+		const now = Date.now();
+		if (now - lastFlush > 300) {
+			const cleaned = stripCodeFences(fullCss);
+			args.onCssChunk(cleaned);
+			lastFlush = now;
+		}
+	}
+
+	const finalCss = stripCodeFences(fullCss);
+	args.onCssChunk(finalCss);
+	return finalCss;
+}
+
+async function generatePageRewrite(args: {
+	model: vscode.LanguageModelChat;
+	userPrompt: string;
+	pageSource: string;
+	fileExtension: string;
+	generatedCss: string;
+	token: vscode.CancellationToken;
+}): Promise<string | undefined> {
+	const isComponent = /\.(tsx|jsx|ts|js)$/i.test(args.fileExtension);
+
+	const system = isComponent
+		? `You are a senior UI engineer. Rewrite the following React/JSX component according to the user's request and the CSS styles that were approved. ` +
+		  `Incorporate the styles directly into the component (inline styles, className-based with a <style> tag, or a CSS module pattern — whichever fits best). ` +
+		  `Preserve all existing functionality, props, hooks, state, and event handlers. ` +
+		  `Keep the same export signature. Return ONLY the complete file contents. No markdown. No backticks. No commentary.`
+		: `You are a senior UI engineer. Rewrite the following HTML file according to the user's request and the CSS styles that were approved. ` +
+		  `Embed the CSS in a <style> tag in the <head>. Preserve all existing content, scripts, and functionality. ` +
+		  `Return ONLY the complete file contents. No markdown. No backticks. No commentary.`;
+
+	const user =
+		`Original file (${args.fileExtension}):\n\n${args.pageSource}\n\n` +
+		`Approved CSS:\n\n${args.generatedCss}\n\n` +
+		`User request: ${args.userPrompt}\n\n` +
+		`Return ONLY the complete rewritten file.`;
+
+	const messages = [
+		vscode.LanguageModelChatMessage.User(system),
+		vscode.LanguageModelChatMessage.User(user),
+	];
+
+	const resp = await args.model.sendRequest(messages, {}, args.token);
+	let out = '';
+	for await (const fragment of resp.text) {
+		out += fragment;
+	}
+	const result = stripCodeFences(out);
+	return result.length > 50 ? result : undefined;
+}
+
 export function registerUiWizard(
 	context: vscode.ExtensionContext,
 	deps: {
@@ -990,6 +1124,8 @@ export function registerUiWizard(
 		refreshWebviewIfOpen: (uri: vscode.Uri) => Promise<void>;
 		previewStyleIfOpen: (file: string, line: number, style: Record<string, string>) => Promise<void>;
 		clearPreviewIfOpen: () => Promise<void>;
+		injectPageCssIfOpen: (css: string) => Promise<void>;
+		clearPageCssIfOpen: () => Promise<void>;
 		requestTargetsIfOpen: (selector: string) => Promise<Array<{ file: string; line: number }>>;
 	}
 ) {
@@ -1045,6 +1181,15 @@ export function registerUiWizard(
 	let lastSelectedKey: string | undefined;
 	let lastFocus: StyleFocus | undefined;
 	let lastPatchKeys: string[] = [];
+
+	// Page-level redesign state
+	let pendingPageRedesign: {
+		css: string;
+		userPrompt: string;
+		uri: vscode.Uri;
+		fileId: string;
+		originalSource: string;
+	} | undefined;
 
 	const TEXT_STYLE_KEYS = [
 		'color',
@@ -1190,6 +1335,15 @@ export function registerUiWizard(
 			'- `use an image as the background` (opens a file picker and embeds as a data URL)',
 		];
 
+		const pageRedesign = [
+			'**Page redesign (Figma-like)**',
+			'- `redesign this page as a modern marketing site`',
+			'- `restyle the whole page — make it dark mode and professional`',
+			'- `redo this page, keep all features but make it look like a SaaS landing page`',
+			'- `make this look like a clean portfolio site`',
+			'- After preview: say `apply` to save or `cancel` to revert',
+		];
+
 		const blocks: string[] = [];
 		if (topic === 'layout') blocks.push(...layout);
 		else if (topic === 'suggest') blocks.push(...suggest);
@@ -1197,7 +1351,7 @@ export function registerUiWizard(
 		else if (topic === 'structure') blocks.push(...structure);
 		else if (topic === 'images') blocks.push(...images);
 		else {
-			blocks.push(...layout, '', ...suggest, '', ...bulk, '', ...structure, '', ...images);
+			blocks.push(...layout, '', ...suggest, '', ...bulk, '', ...structure, '', ...images, '', ...pageRedesign);
 		}
 
 		return [...header, '', ...blocks].filter(x => x !== undefined).join('\n');
@@ -1246,6 +1400,124 @@ export function registerUiWizard(
 			const selected = deps.getSelected();
 			const topic = parseHelpTopic(request.prompt) ?? inferDefaultHelpTopicFromSelection(selected);
 			stream.markdown(renderHelp(topic));
+			return;
+		}
+
+		// ------------------------------------------------------------------
+		// Page-level redesign: handle pending apply/reject
+		// ------------------------------------------------------------------
+		if (pendingPageRedesign) {
+			if (isPageRedesignApply(request.prompt)) {
+				stream.markdown('Applying page redesign…');
+				const { uri, css, userPrompt: origPrompt, originalSource } = pendingPageRedesign;
+				pendingPageRedesign = undefined;
+				await deps.clearPageCssIfOpen();
+
+				const model = (request as unknown as { model?: vscode.LanguageModelChat }).model ?? (await getAnyCopilotModel(token));
+				if (!model) {
+					stream.markdown('\n\nNo language model available to generate the rewrite. The CSS preview has been cleared.');
+					return;
+				}
+
+				await pushUndoSnapshot('page redesign', [uri]);
+				const ext = uri.path.split('.').pop() || 'html';
+
+				const rewritten = await generatePageRewrite({
+					model,
+					userPrompt: origPrompt,
+					pageSource: originalSource,
+					fileExtension: `.${ext}`,
+					generatedCss: css,
+					token,
+				});
+
+				if (!rewritten) {
+					stream.markdown('\n\nFailed to generate the full rewrite. Your original file is unchanged. Say "undo" to restore if anything was altered.');
+					return;
+				}
+
+				const doc = await vscode.workspace.openTextDocument(uri);
+				const edit = new vscode.WorkspaceEdit();
+				edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), rewritten);
+				const applied = await vscode.workspace.applyEdit(edit);
+				if (applied) await doc.save();
+
+				await deps.refreshWebviewIfOpen(uri);
+				stream.markdown(applied
+					? '\n\nPage redesign applied and saved! Say "undo" to revert.'
+					: '\n\nFailed to apply the rewrite to the file.');
+				return;
+			}
+
+			if (isPageRedesignReject(request.prompt)) {
+				pendingPageRedesign = undefined;
+				await deps.clearPageCssIfOpen();
+				stream.markdown('Page redesign cancelled. Preview cleared.');
+				return;
+			}
+
+			// If the user sends another redesign prompt while one is pending, treat it as a new attempt.
+			if (!isPageRedesign(request.prompt)) {
+				// Not a redesign and not apply/reject — remind them.
+				stream.markdown('You have a pending page redesign preview. Say **apply** to keep it, **cancel** to discard, or describe a new redesign to try again.');
+				return;
+			}
+			// Fall through to generate a new redesign below.
+			await deps.clearPageCssIfOpen();
+			pendingPageRedesign = undefined;
+		}
+
+		// ------------------------------------------------------------------
+		// Page-level redesign: detect and execute
+		// ------------------------------------------------------------------
+		if (isPageRedesign(request.prompt)) {
+			const selected = deps.getSelected();
+			const uri = selected?.uri;
+			if (!uri) {
+				stream.markdown('Select any element on the page first so I know which file to redesign. (App Mode: switch to **Edit**, then click an element.)');
+				return;
+			}
+
+			const model = (request as unknown as { model?: vscode.LanguageModelChat }).model ?? (await getAnyCopilotModel(token));
+			if (!model) {
+				stream.markdown('No language model is available. Please make sure Copilot is active and try again.');
+				return;
+			}
+
+			stream.markdown('**Page Redesign** — Reading page source and streaming CSS changes to the viewport…\n\n');
+
+			const doc = await vscode.workspace.openTextDocument(uri);
+			const pageSource = doc.getText();
+			const ext = uri.path.split('.').pop() || 'html';
+
+			try {
+				const css = await generatePageCssWithStreaming({
+					model,
+					userPrompt: request.prompt,
+					pageSource,
+					fileExtension: `.${ext}`,
+					token,
+					onCssChunk: (cssSoFar) => {
+						void deps.injectPageCssIfOpen(cssSoFar);
+					},
+				});
+
+				pendingPageRedesign = {
+					css,
+					userPrompt: request.prompt,
+					uri,
+					fileId: selected.fileId,
+					originalSource: pageSource,
+				};
+
+				stream.markdown('CSS preview is live in the viewport!\n\n');
+				stream.markdown('- Say **apply** to rewrite the source file with these styles baked in.\n');
+				stream.markdown('- Say **cancel** to revert and discard.\n');
+				stream.markdown('- Or describe a different direction to regenerate.');
+			} catch (e) {
+				await deps.clearPageCssIfOpen();
+				stream.markdown(`Failed to generate page CSS: ${String(e)}`);
+			}
 			return;
 		}
 
@@ -1728,3 +2000,12 @@ export function registerUiWizard(
 		// Chat API not available in this VS Code build.
 	}
 }
+
+// Expose pure helpers for unit testing (not part of public API).
+export const __testExports = {
+	isPageRedesign,
+	isPageRedesignApply,
+	isPageRedesignReject,
+	stripCodeFences,
+	stripJsonFences,
+};

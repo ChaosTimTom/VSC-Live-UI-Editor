@@ -425,6 +425,18 @@ export default function liveUiEditorBabelPlugin(babel) {
 		currentPanel.webview.postMessage(msg);
 	};
 
+	const injectPageCssIfOpen = async (css: string) => {
+		if (!currentPanel) return;
+		const msg: ToWebviewMessage = { command: 'injectPageCss', css };
+		currentPanel.webview.postMessage(msg);
+	};
+
+	const clearPageCssIfOpen = async () => {
+		if (!currentPanel) return;
+		const msg: ToWebviewMessage = { command: 'clearPageCss' };
+		currentPanel.webview.postMessage(msg);
+	};
+
 	const requestTargetsIfOpen = async (selector: string): Promise<Array<{ file: string; line: number }>> => {
 		if (!currentPanel) return [];
 		if (pendingTargetsRequest) {
@@ -465,6 +477,8 @@ export default function liveUiEditorBabelPlugin(babel) {
 		refreshWebviewIfOpen,
 		previewStyleIfOpen,
 		clearPreviewIfOpen,
+		injectPageCssIfOpen,
+		clearPageCssIfOpen,
 		requestTargetsIfOpen,
 	});
 

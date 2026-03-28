@@ -804,6 +804,23 @@ export default function App() {
         previewOriginalRef.current.clear();
         bumpDebug('clearPreview', selectedElRef.current?.getBoundingClientRect() ?? null);
       }
+      if (event.data.command === 'injectPageCss') {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        let styleEl = canvas.querySelector<HTMLStyleElement>('#live-ui-editor-page-css');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'live-ui-editor-page-css';
+          canvas.appendChild(styleEl);
+        }
+        styleEl.textContent = (event.data as any).css || '';
+      }
+      if (event.data.command === 'clearPageCss') {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const styleEl = canvas.querySelector<HTMLStyleElement>('#live-ui-editor-page-css');
+        if (styleEl) styleEl.textContent = '';
+      }
       if (event.data.command === 'requestTargets') {
         const canvas = canvasRef.current;
         if (!canvas) return;

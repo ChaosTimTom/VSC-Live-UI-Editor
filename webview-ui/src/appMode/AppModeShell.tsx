@@ -270,6 +270,14 @@ export default function AppModeShell() {
         postToIframe({ type: 'live-ui-editor:clearPreview' });
         return;
       }
+      if (msg.command === 'injectPageCss') {
+        postToIframe({ type: 'live-ui-editor:injectPageCss', css: msg.css });
+        return;
+      }
+      if (msg.command === 'clearPageCss') {
+        postToIframe({ type: 'live-ui-editor:clearPageCss' });
+        return;
+      }
       if (msg.command === 'requestTargets') {
         // Ask the injected iframe script to enumerate matching DOM nodes and map them back to source.
         // It will reply via the iframe->webview bridge as { command: 'targetsList', requestId, targets }.

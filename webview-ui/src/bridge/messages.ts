@@ -276,7 +276,16 @@ export type DiffResultMessage = {
   modified: string;
 };
 
-export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage;
+export type InjectPageCssMessage = {
+  command: 'injectPageCss';
+  css: string;
+};
+
+export type ClearPageCssMessage = {
+  command: 'clearPageCss';
+};
+
+export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage | InjectPageCssMessage | ClearPageCssMessage;
 export type FromWebviewMessage =
   | ElementClickedMessage
   | ElementSelectedMessage
@@ -323,6 +332,18 @@ export function isToWebviewMessage(value: unknown): value is ToWebviewMessage {
     const appsOk = info.appsDetected === undefined || Array.isArray(info.appsDetected);
     const reportOk = info.report === undefined || (typeof info.report === 'object' && !!info.report);
     return hwOk && pmOk && modeOk && urlOk && connectOk && devOk && installOk && appsOk && reportOk;
+  }
+  if (v.command === 'injectPageCss') {
+    return typeof v.css === 'string';
+  }
+  if (v.command === 'clearPageCss') {
+    return true;
+  }
+  if (v.command === 'workspaceConfig') {
+    return typeof v.config === 'object' && !!v.config;
+  }
+  if (v.command === 'diffResult') {
+    return typeof v.file === 'string' && typeof v.original === 'string' && typeof v.modified === 'string';
   }
   return false;
 }
