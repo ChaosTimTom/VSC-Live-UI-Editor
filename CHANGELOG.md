@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.3
+
+### Docs
+- Added Page Redesign feature to README features table with examples.
+- Added full Page Redesign section to HELP.md (workflow, examples, tips).
+- Updated marketplace description and chat participant description to mention page redesign.
+- Added `page redesign` and `figma` keywords.
+
 ## 0.3.2
 
 ### Features
