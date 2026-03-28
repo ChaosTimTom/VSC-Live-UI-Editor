@@ -5,7 +5,7 @@
 <h1 align="center">Live UI Editor</h1>
 
 <p align="center">
-  <strong>Visual UI editing inside VS Code — Static HTML mode + App Mode (React/Vite/Next.js) with click-to-code, live preview, and safe source updates.</strong>
+  <strong>Edit your UI visually — right inside VS Code.<br>Click to select, drag to move, inspect styles, and apply changes to source code instantly.</strong>
 </p>
 
 <p align="center">
@@ -43,10 +43,36 @@
 
 ---
 
-<!-- Add your demo GIF here -->
+<!-- 🎬 DEMO: Replace with your GIF or video once recorded -->
+<p align="center">
+  <img src="images/demo.gif" alt="Live UI Editor — click, drag, edit, apply to code" width="800">
+  <br>
+  <sub>Click any element → edit styles, text, or layout → changes apply to your source code</sub>
+</p>
+
+<!-- Optional: link a YouTube video for people who want a longer walkthrough -->
 <!-- <p align="center">
-  <img src="images/demo.gif" alt="Live UI Editor Demo" width="800">
+  <a href="https://youtu.be/YOUR_VIDEO_ID">
+    <img src="https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube" alt="Watch Demo">
+  </a>
 </p> -->
+
+---
+
+## 🧩 Works With
+
+<p align="center">
+  <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React">
+  <img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js">
+  <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/Angular-DD0031?style=for-the-badge&logo=angular&logoColor=white" alt="Angular">
+  <img src="https://img.shields.io/badge/Vue-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white" alt="Vue">
+  <img src="https://img.shields.io/badge/Svelte-FF3E00?style=for-the-badge&logo=svelte&logoColor=white" alt="Svelte">
+  <img src="https://img.shields.io/badge/Astro-BC52EE?style=for-the-badge&logo=astro&logoColor=white" alt="Astro">
+  <img src="https://img.shields.io/badge/Nuxt-00DC82?style=for-the-badge&logo=nuxtdotjs&logoColor=white" alt="Nuxt">
+  <img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind">
+  <img src="https://img.shields.io/badge/Static_HTML-E34F26?style=for-the-badge&logo=html5&logoColor=white" alt="HTML">
+</p>
 
 ## ✨ Features
 
@@ -57,11 +83,15 @@
 ### 🎯 Click to Code
 Click any element in your running app and instantly jump to its source location in your editor.
 
+<!-- Screenshot: images/feature-click-to-code.png -->
+
 </td>
 <td width="50%">
 
 ### 🖱️ Drag & Resize
 Move and resize elements visually.
+
+<!-- Screenshot: images/feature-drag-resize.png -->
 
 You can control how layout changes are persisted:
 
@@ -80,11 +110,15 @@ Double-click to edit text inline.
 - **App Mode**: supports i18n-aware updates for common `t('key')` patterns when translation files are present.
 - **Static HTML mode**: edits plain HTML text.
 
+<!-- Screenshot: images/feature-text-editing.png -->
+
 </td>
 <td width="50%">
 
 ### 🗑️ Element CRUD
 Insert, duplicate, wrap, and delete elements with toolbar buttons or keyboard shortcuts (`Ctrl+D`, `Ctrl+G`, `Delete`). Multi-select with `Ctrl+Shift+Click` for bulk operations. Fully undoable.
+
+<!-- Screenshot: images/feature-crud.png -->
 
 </td>
 </tr>
@@ -125,11 +159,15 @@ Switch the preview viewport between six breakpoints (Mobile S/M/L, Tablet, Lapto
 ### 🔍 Inspector + CSS Cascade
 View and edit every computed CSS property inline. The Cascade panel shows which rules apply, their specificity, and what's overridden.
 
+<!-- Screenshot: images/feature-inspector.png -->
+
 </td>
 <td width="50%">
 
 ### 🌳 Element Tree + Diff Preview
 Browse and search the full DOM tree. Open the diff panel to see a before/after comparison of every HTML change.
+
+<!-- Screenshot: images/feature-tree-diff.png -->
 
 </td>
 </tr>
@@ -509,6 +547,12 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Discussions**: [Ask questions](https://github.com/ChaosTimTom/VSC-Live-UI-Editor/discussions)
 
 ---
+
+<p align="center">
+  <strong>If Live UI Editor saves you time, consider leaving a ⭐ on <a href="https://github.com/ChaosTimTom/VSC-Live-UI-Editor">GitHub</a> and a review on the <a href="https://marketplace.visualstudio.com/items?itemName=TheImmersiveSaga.vscode-live-ui-editor&ssr=false#review-details">Marketplace</a>.</strong>
+  <br>
+  It helps others find the extension and keeps development going.
+</p>
 
 <p align="center">
   <strong>Made with ❤️ by <a href="https://github.com/ChaosTimTom">ChaosTimTom</a></strong>
