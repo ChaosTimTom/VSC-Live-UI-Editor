@@ -303,7 +303,7 @@ export class CodeModifier {
 	public async wrapWithBox(
 		fileUri: vscode.Uri,
 		lineNumber: number,
-		options?: { lineUnder?: boolean }
+		options?: { lineUnder?: boolean; tag?: string; className?: string }
 	): Promise<boolean> {
 		const ext = fileUri.path.toLowerCase();
 		const doc = await vscode.workspace.openTextDocument(fileUri);

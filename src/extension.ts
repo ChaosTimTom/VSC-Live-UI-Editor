@@ -133,7 +133,13 @@ export function activate(context: vscode.ExtensionContext) {
 		try {
 			const u = new URL(urlString);
 			const host = (u.hostname || '').toLowerCase();
-			return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+			if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') return false;
+			// Validate port is in valid range when specified
+			if (u.port) {
+				const p = Number(u.port);
+				if (!Number.isFinite(p) || p < 1 || p > 65535) return false;
+			}
+			return true;
 		} catch {
 			return false;
 		}
@@ -904,12 +910,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
 					if (!targetUri) return;
 
-					const style: Record<string, string> = {};
-					if (message.style.width) style.width = message.style.width;
-					if (message.style.height) style.height = message.style.height;
-					if (message.style.transform) style.transform = message.style.transform;
-
-					const changed = await codeModifier.updateStyle(targetUri, message.line, style, message.column, message.elementContext);
+					const changed = await codeModifier.updateStyle(targetUri, message.line, message.style, message.column, message.elementContext);
 					if (changed) {
 						const doc = await vscode.workspace.openTextDocument(targetUri);
 						const text = doc.getText();
@@ -937,6 +938,247 @@ export default function liveUiEditorBabelPlugin(babel) {
 				} catch (e) {
 					output.appendLine(`[updateText:error] ${String(e)}`);
 					vscode.window.showErrorMessage('Live UI Editor: Failed to apply text edit to source. See Output → Live UI Editor.');
+				}
+			}
+
+			if (message.command === 'deleteElement') {
+				output.appendLine(`[deleteElement] ${message.file}:${message.line}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					const changed = await codeModifier.deleteElement(targetUri, message.line, message.column, message.elementContext);
+					if (changed) {
+						scheduleHotReload(targetUri);
+						const doc = await vscode.workspace.openTextDocument(targetUri);
+						const text = doc.getText();
+						const fileId = looksAbsolute
+							? targetUri.fsPath
+							: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+						const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+						const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+						panel.webview.postMessage(msg);
+					} else {
+						vscode.window.showWarningMessage('Live UI Editor: Could not delete this element (not found in source).');
+					}
+				} catch (e) {
+					output.appendLine(`[deleteElement:error] ${String(e)}`);
+					vscode.window.showErrorMessage('Live UI Editor: Failed to delete element. See Output → Live UI Editor.');
+				}
+			}
+
+			if (message.command === 'insertElement') {
+				output.appendLine(`[insertElement] ${message.file}:${message.line} pos=${message.position} markup=${message.markup.slice(0, 60)}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					const changed = await codeModifier.insertElement(targetUri, message.line, message.position, message.markup);
+					if (changed) {
+						scheduleHotReload(targetUri);
+						const doc = await vscode.workspace.openTextDocument(targetUri);
+						const text = doc.getText();
+						const fileId = looksAbsolute
+							? targetUri.fsPath
+							: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+						const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+						const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+						panel.webview.postMessage(msg);
+					} else {
+						vscode.window.showWarningMessage('Live UI Editor: Could not insert element (target not found in source).');
+					}
+				} catch (e) {
+					output.appendLine(`[insertElement:error] ${String(e)}`);
+					vscode.window.showErrorMessage('Live UI Editor: Failed to insert element. See Output → Live UI Editor.');
+				}
+			}
+
+			if (message.command === 'wrapWithBox') {
+				output.appendLine(`[wrapWithBox] ${message.file}:${message.line} tag=${message.tag ?? 'div'}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					const changed = await codeModifier.wrapWithBox(targetUri, message.line, {
+						tag: message.tag,
+						className: message.className,
+					});
+					if (changed) {
+						scheduleHotReload(targetUri);
+						const doc = await vscode.workspace.openTextDocument(targetUri);
+						const text = doc.getText();
+						const fileId = looksAbsolute
+							? targetUri.fsPath
+							: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+						const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+						const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+						panel.webview.postMessage(msg);
+					} else {
+						vscode.window.showWarningMessage('Live UI Editor: Could not wrap element (target not found in source).');
+					}
+				} catch (e) {
+					output.appendLine(`[wrapWithBox:error] ${String(e)}`);
+					vscode.window.showErrorMessage('Live UI Editor: Failed to wrap element. See Output → Live UI Editor.');
+				}
+			}
+
+			if (message.command === 'duplicateElement') {
+				output.appendLine(`[duplicateElement] ${message.file}:${message.line}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					// Get the element's outer HTML from source, then insert after it
+					const selection = await codeModifier.getJsxSelection(targetUri, message.line);
+					if (selection) {
+						const changed = await codeModifier.insertElement(targetUri, message.line, 'after', selection.snippet);
+						if (changed) {
+							scheduleHotReload(targetUri);
+							const doc = await vscode.workspace.openTextDocument(targetUri);
+							const text = doc.getText();
+							const fileId = looksAbsolute
+								? targetUri.fsPath
+								: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+							const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+							const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+							panel.webview.postMessage(msg);
+						} else {
+							vscode.window.showWarningMessage('Live UI Editor: Could not duplicate element (insert failed).');
+						}
+					} else {
+						// Fallback for HTML mode: read the line and try to insert after
+						const doc = await vscode.workspace.openTextDocument(targetUri);
+						const lineText = doc.lineAt(message.line - 1).text;
+						const changed = await codeModifier.insertElement(targetUri, message.line, 'after', lineText);
+						if (changed) {
+							scheduleHotReload(targetUri);
+							const text = doc.getText();
+							const fileId = looksAbsolute
+								? targetUri.fsPath
+								: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+							const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+							const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+							panel.webview.postMessage(msg);
+						} else {
+							vscode.window.showWarningMessage('Live UI Editor: Could not duplicate element.');
+						}
+					}
+				} catch (e) {
+					output.appendLine(`[duplicateElement:error] ${String(e)}`);
+					vscode.window.showErrorMessage('Live UI Editor: Failed to duplicate element. See Output → Live UI Editor.');
+				}
+			}
+
+			if (message.command === 'loadWorkspaceConfig') {
+				output.appendLine('[loadWorkspaceConfig]');
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					if (!workspaceFolder) return;
+					const configUri = vscode.Uri.joinPath(workspaceFolder.uri, '.liveui.json');
+					if (await fileExists(configUri)) {
+						const text = await readUtf8(configUri);
+						const config = JSON.parse(text);
+						const msg: ToWebviewMessage = { command: 'workspaceConfig', config };
+						panel.webview.postMessage(msg);
+					} else {
+						const msg: ToWebviewMessage = { command: 'workspaceConfig', config: {} };
+						panel.webview.postMessage(msg);
+					}
+				} catch (e) {
+					output.appendLine(`[loadWorkspaceConfig:error] ${String(e)}`);
+					const msg: ToWebviewMessage = { command: 'workspaceConfig', config: {} };
+					panel.webview.postMessage(msg);
+				}
+			}
+
+			if (message.command === 'saveWorkspaceConfig') {
+				output.appendLine(`[saveWorkspaceConfig] ${JSON.stringify(message.config).slice(0, 200)}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					if (!workspaceFolder) return;
+					const configUri = vscode.Uri.joinPath(workspaceFolder.uri, '.liveui.json');
+					await writeUtf8(configUri, JSON.stringify(message.config, null, 2) + '\n');
+				} catch (e) {
+					output.appendLine(`[saveWorkspaceConfig:error] ${String(e)}`);
+					vscode.window.showErrorMessage(`Failed to save .liveui.json: ${String(e)}`);
+				}
+			}
+
+			if (message.command === 'requestDiff') {
+				output.appendLine(`[requestDiff] ${message.file}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					const doc = await vscode.workspace.openTextDocument(targetUri);
+					const modified = doc.getText();
+
+					// Get original from git if available
+					let original = modified;
+					try {
+						const gitUri = vscode.Uri.parse(`git:${targetUri.fsPath}`);
+						const gitDoc = await vscode.workspace.openTextDocument(gitUri);
+						original = gitDoc.getText();
+					} catch {
+						// No git version available - show as all new
+						original = '';
+					}
+
+					const msg: ToWebviewMessage = {
+						command: 'diffResult',
+						file: message.file,
+						original,
+						modified,
+					};
+					panel.webview.postMessage(msg);
+				} catch (e) {
+					output.appendLine(`[requestDiff:error] ${String(e)}`);
+				}
+			}
+
+			if (message.command === 'undoRedo') {
+				output.appendLine(`[undoRedo] ${message.action} ${message.file}:${message.line} ${JSON.stringify(message.style)}`);
+				try {
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					const looksAbsolute = /^[A-Za-z]:\\/.test(message.file) || message.file.startsWith('\\\\');
+					const targetUri = looksAbsolute
+						? vscode.Uri.file(message.file)
+						: (workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, message.file) : lastLoadedUri);
+					if (!targetUri) return;
+
+					const changed = await codeModifier.updateStyle(targetUri, message.line, message.style, undefined, undefined);
+					if (changed) {
+						const doc = await vscode.workspace.openTextDocument(targetUri);
+						const text = doc.getText();
+						const fileId = looksAbsolute
+							? targetUri.fsPath
+							: (workspaceFolder ? vscode.workspace.asRelativePath(targetUri, false) : (lastLoadedFileId ?? targetUri.fsPath));
+						const injected = injectSourceMetadataRobust(text, fileId, { cacheKey: targetUri.toString(), version: doc.version });
+						const msg: ToWebviewMessage = { command: 'setDocument', file: fileId, html: injected };
+						panel.webview.postMessage(msg);
+					}
+				} catch (e) {
+					output.appendLine(`[undoRedo:error] ${String(e)}`);
 				}
 			}
 		});

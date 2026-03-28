@@ -4,6 +4,15 @@ import { DebugOverlay, type DebugStats } from './editor/debugOverlay';
 import type { SelectionModel } from './editor/types';
 import { hitTestAtPoint } from './editor/hitTest';
 import { getScrollParents } from './editor/scrollParents';
+import { PropertyInspector } from './editor/PropertyInspector';
+import { HoverHighlight } from './editor/HoverHighlight';
+import { SpacingGuides } from './editor/SpacingGuides';
+import { DimensionTooltip } from './editor/DimensionTooltip';
+import { useUndoRedo } from './editor/useUndoRedo';
+import { ElementTree } from './editor/ElementTree';
+import { ResponsiveBar } from './editor/ResponsiveBar';
+import { DiffPreview } from './editor/DiffPreview';
+import { CascadePanel } from './editor/CascadePanel';
 import logo from '../../images/logo.png';
 
 type SourceLocator = { file: string; line: number; column?: number };
@@ -152,6 +161,14 @@ export default function App() {
   const [detectedUrl, setDetectedUrl] = useState<string>('');
   const detectedUrlDefaultRef = useRef<string>('');
 
+  const [treeOpen, setTreeOpen] = useState<boolean>(false);
+  const [multiSelectedEls, setMultiSelectedEls] = useState<HTMLElement[]>([]);
+  const [responsiveWidth, setResponsiveWidth] = useState<number | null>(null);
+  const [diffData, setDiffData] = useState<{ file: string; original: string; modified: string } | null>(null);
+  const [cascadeOpen, setCascadeOpen] = useState(false);
+
+  const lastLoadedFileRef = useRef<string>('');
+
   const theme = useMemo(() => {
     return {
       fg: 'var(--vscode-foreground, #111)',
@@ -257,7 +274,23 @@ export default function App() {
       cursor: 'pointer',
       backdropFilter: 'blur(10px)',
       WebkitBackdropFilter: 'blur(10px)',
+      transition: 'background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease',
     };
+  };
+
+  const kbdStyle: React.CSSProperties = {
+    fontSize: 9,
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: 600,
+    opacity: 0.5,
+    marginLeft: 4,
+    padding: '1px 4px',
+    borderRadius: 4,
+    background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+    verticalAlign: 'middle',
+    lineHeight: '14px',
+    display: 'inline-block',
   };
 
   const primaryButtonStyle: React.CSSProperties = {
@@ -339,6 +372,12 @@ export default function App() {
 
   const [overlayRect, setOverlayRect] = useState<DOMRect | null>(null);
   const overlayRafRef = useRef<number | null>(null);
+
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(true);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+
+  const undoRedo = useUndoRedo();
 
   const scheduleMeasure = (reason: string) => {
     if (overlayRafRef.current != null) return;
@@ -572,7 +611,95 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Undo/Redo: Ctrl+Z / Ctrl+Shift+Z (or Cmd on Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          const entry = undoRedo.redo();
+          if (entry) {
+            e.preventDefault();
+            scheduleMeasure('redo');
+            const msg: FromWebviewMessage = {
+              command: 'undoRedo',
+              action: 'redo',
+              file: entry.file,
+              line: entry.line,
+              style: { [entry.prop]: entry.next },
+            };
+            vscode?.postMessage(msg);
+          }
+        } else {
+          const entry = undoRedo.undo();
+          if (entry) {
+            e.preventDefault();
+            scheduleMeasure('undo');
+            const msg: FromWebviewMessage = {
+              command: 'undoRedo',
+              action: 'undo',
+              file: entry.file,
+              line: entry.line,
+              style: { [entry.prop]: entry.prev },
+            };
+            vscode?.postMessage(msg);
+          }
+        }
+        return;
+      }
+
+      // Duplicate element: Ctrl/Cmd+D
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        const target = selectedElRef.current;
+        if (target) handleDuplicateElement(target);
+        return;
+      }
+
+      // Wrap element: Ctrl/Cmd+G
+      if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+        e.preventDefault();
+        const target = selectedElRef.current;
+        if (target) handleWrapElement(target);
+        return;
+      }
+
+      // Select all siblings: Ctrl/Cmd+A
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        const target = selectedElRef.current;
+        if (target?.parentElement) {
+          const siblings = Array.from(target.parentElement.children).filter(
+            (ch): ch is HTMLElement => ch instanceof HTMLElement && ch.hasAttribute('data-source-file')
+          );
+          if (siblings.length > 0) setMultiSelectedEls(siblings);
+        }
+        return;
+      }
+
       const target = selectedElRef.current;
+
+      // Escape: deselect + clear multi-select
+      if (e.key === 'Escape') {
+        if (multiSelectedEls.length > 0) {
+          e.preventDefault();
+          setMultiSelectedEls([]);
+          return;
+        }
+        if (target) {
+          e.preventDefault();
+          setSelectedEl(null);
+          setOverlayRect(null);
+        }
+        return;
+      }
+
+      // Delete / Backspace: delete selected element
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (target && !isEditingText) {
+          e.preventDefault();
+          handleDeleteElement(target);
+        }
+        return;
+      }
+
       if (!target) return;
 
       // Don't interfere with browser shortcuts.
@@ -620,14 +747,15 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [vscode]);
+  }, [vscode, multiSelectedEls, isEditingText]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (!isToWebviewMessage(event.data)) return;
       if (event.data.command === 'setDocument') {
         setLoadedFile(event.data.file);
-        setRenderedHtml(event.data.html);
+        lastLoadedFileRef.current = event.data.file;
+        setLoadedHtml(event.data.html);
         // New document => clear previews
         previewOriginalRef.current.clear();
 
@@ -721,10 +849,41 @@ export default function App() {
 			}
         }
       }
+      if (event.data.command === 'workspaceConfig') {
+        const c = event.data.config;
+        if (typeof c.inspectorOpen === 'boolean') setInspectorOpen(c.inspectorOpen);
+        if (typeof c.treeOpen === 'boolean') setTreeOpen(c.treeOpen);
+        if (typeof c.debugEnabled === 'boolean') setDebugEnabled(c.debugEnabled);
+        if (c.selectionMode === 'group' || c.selectionMode === 'element') setSelectionMode(c.selectionMode);
+        if (typeof c.responsiveWidth === 'number' || c.responsiveWidth === null) setResponsiveWidth(c.responsiveWidth as number | null);
+      }
+      if (event.data.command === 'diffResult') {
+        setDiffData({ file: event.data.file, original: event.data.original, modified: event.data.modified });
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [renderedHtml, appUrl]);
+
+  // Load workspace config on mount
+  useEffect(() => {
+    vscode?.postMessage({ command: 'loadWorkspaceConfig' } as FromWebviewMessage);
+  }, [vscode]);
+
+  // Auto-save workspace config when preferences change (debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const config: Record<string, unknown> = {
+        inspectorOpen,
+        treeOpen,
+        debugEnabled,
+        selectionMode,
+        responsiveWidth,
+      };
+      vscode?.postMessage({ command: 'saveWorkspaceConfig', config } as FromWebviewMessage);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [inspectorOpen, treeOpen, debugEnabled, selectionMode, responsiveWidth, vscode]);
 
 	useEffect(() => {
 		const report = quickStartInfo?.report;
@@ -815,13 +974,29 @@ export default function App() {
 
       leafElRef.current = hit.leafEl;
 
-      const wantsGroup = (!e.altKey && (selectionMode === 'group' || e.shiftKey));
+      const wantsGroup = (!e.altKey && (selectionMode === 'group' || e.shiftKey) && !e.ctrlKey && !e.metaKey);
       const sourceEl = wantsGroup ? findGroupRootMapped(hit.mappedEl) : hit.mappedEl;
+
+      // Ctrl+Shift+Click = multi-select toggle
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        setMultiSelectedEls(prev => {
+          const exists = prev.includes(sourceEl);
+          if (exists) return prev.filter(el => el !== sourceEl);
+          return [...prev, sourceEl];
+        });
+        selectElement(sourceEl, { leaf: hit.mappedEl, notify: true });
+        return;
+      }
+
+      // Normal click clears multi-selection
+      if (multiSelectedEls.length > 0) {
+        setMultiSelectedEls([]);
+      }
 
       selectElement(sourceEl, { leaf: hit.mappedEl, notify: true });
 
       // Normal click = select. Ctrl/Cmd+Click = jump to code.
-      const shouldJumpToCode = e.ctrlKey || e.metaKey;
+      const shouldJumpToCode = (e.ctrlKey || e.metaKey) && !e.shiftKey;
       if (!shouldJumpToCode) return;
 
       const file = sourceEl.getAttribute('data-source-file');
@@ -1039,6 +1214,78 @@ export default function App() {
     vscode?.postMessage(msg);
   };
 
+  const getLocator = (el: HTMLElement) => {
+    const file = el.getAttribute('data-source-file');
+    const lineRaw = el.getAttribute('data-source-line');
+    const line = lineRaw ? Number(lineRaw) : NaN;
+    const columnRaw = el.getAttribute('data-source-column');
+    const column = columnRaw ? Number(columnRaw) : NaN;
+    if (!file || !Number.isFinite(line)) return null;
+    return { file, line, column: Number.isFinite(column) ? column : undefined };
+  };
+
+  const handleDeleteElement = (el: HTMLElement) => {
+    const loc = getLocator(el);
+    if (!loc) return;
+    const msg: FromWebviewMessage = {
+      command: 'deleteElement',
+      file: loc.file,
+      line: loc.line,
+      column: loc.column,
+      elementContext: buildElementContext(el),
+    };
+    vscode?.postMessage(msg);
+    // Clear selection since element is being deleted
+    setSelectedEl(null);
+    setOverlayRect(null);
+  };
+
+  const handleInsertElement = (el: HTMLElement, position: 'before' | 'after' | 'inside') => {
+    const loc = getLocator(el);
+    if (!loc) return;
+    const tag = el.tagName.toLowerCase();
+    const isContainer = tag === 'div' || tag === 'section' || tag === 'main' || tag === 'article' || tag === 'aside' || tag === 'nav' || tag === 'header' || tag === 'footer' || tag === 'ul' || tag === 'ol';
+    const markup = position === 'inside' && isContainer
+      ? '<div style="padding: 16px; border: 1px dashed rgba(99,102,241,0.5);">New element</div>'
+      : '<div style="padding: 16px;">New element</div>';
+    const msg: FromWebviewMessage = {
+      command: 'insertElement',
+      file: loc.file,
+      line: loc.line,
+      column: loc.column,
+      position,
+      markup,
+      elementContext: buildElementContext(el),
+    };
+    vscode?.postMessage(msg);
+  };
+
+  const handleDuplicateElement = (el: HTMLElement) => {
+    const loc = getLocator(el);
+    if (!loc) return;
+    const msg: FromWebviewMessage = {
+      command: 'duplicateElement',
+      file: loc.file,
+      line: loc.line,
+      column: loc.column,
+      elementContext: buildElementContext(el),
+    };
+    vscode?.postMessage(msg);
+  };
+
+  const handleWrapElement = (el: HTMLElement) => {
+    const loc = getLocator(el);
+    if (!loc) return;
+    const msg: FromWebviewMessage = {
+      command: 'wrapWithBox',
+      file: loc.file,
+      line: loc.line,
+      column: loc.column,
+      elementContext: buildElementContext(el),
+    };
+    vscode?.postMessage(msg);
+  };
+
   const onOverlayDragStart = (e: React.PointerEvent) => {
     const target = selectedElRef.current;
     if (!target) return;
@@ -1048,6 +1295,7 @@ export default function App() {
     const [x, y] = getCurrentTranslate(target);
     dragTranslateRef.current = [x, y];
     (dragTranslateRef as any).start = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: x, ty: y };
+    setIsDragging(true);
     bumpDebug('dragStart');
   };
 
@@ -1071,6 +1319,7 @@ export default function App() {
     (dragTranslateRef as any).start = undefined;
     const transform = target.style.transform || undefined;
     persistStyle(target, { transform });
+    setIsDragging(false);
     scheduleMeasure('dragEnd');
   };
 
@@ -1095,6 +1344,7 @@ export default function App() {
       tx,
       ty,
     };
+    setIsResizing(true);
     bumpDebug(`resizeStart:${dir}`);
   };
 
@@ -1144,6 +1394,7 @@ export default function App() {
     const height = target.style.height || undefined;
     const transform = target.style.transform || undefined;
     persistStyle(target, { width, height, transform });
+    setIsResizing(false);
     scheduleMeasure('resizeEnd');
   };
 
@@ -1393,6 +1644,8 @@ export default function App() {
               onClick={() => setSelectionMode('group')}
 			  style={controlButtonStyle(selectionMode === 'group')}
               title="Select whole grouped areas"
+              aria-label="Selection mode: group"
+              aria-pressed={selectionMode === 'group'}
             >
               Group
             </button>
@@ -1400,21 +1653,82 @@ export default function App() {
               onClick={() => setSelectionMode('element')}
 			  style={controlButtonStyle(selectionMode === 'element')}
               title="Select individual elements"
+              aria-label="Selection mode: element"
+              aria-pressed={selectionMode === 'element'}
             >
               Element
             </button>
           </div>
-          <button onClick={selectParent} disabled={!selectedEl} style={{ ...controlButtonStyle(false), opacity: selectedEl ? 1 : 0.55, cursor: selectedEl ? 'pointer' : 'not-allowed' }}>
+          <button onClick={selectParent} disabled={!selectedEl} style={{ ...controlButtonStyle(false), opacity: selectedEl ? 1 : 0.55, cursor: selectedEl ? 'pointer' : 'not-allowed' }} aria-label="Select parent element">
             Select parent
           </button>
-          <button onClick={() => setHelpExpanded(v => !v)} style={controlButtonStyle(helpExpanded)}>
+          <button onClick={() => setHelpExpanded(v => !v)} style={controlButtonStyle(helpExpanded)} aria-label={helpExpanded ? 'Hide help panel' : 'Show help panel'} aria-pressed={helpExpanded}>
             {helpExpanded ? 'Hide help' : 'Help'}
           </button>
-          <button onClick={() => setDebugEnabled(v => !v)} style={controlButtonStyle(debugEnabled)}>
+          <button onClick={() => setDebugEnabled(v => !v)} style={controlButtonStyle(debugEnabled)} aria-label={`Debug mode: ${debugEnabled ? 'on' : 'off'}`} aria-pressed={debugEnabled}>
             {debugEnabled ? 'Debug: On' : 'Debug: Off'}
           </button>
+          <button onClick={() => setInspectorOpen(v => !v)} style={controlButtonStyle(inspectorOpen)} aria-label={inspectorOpen ? 'Close inspector' : 'Open inspector'} aria-pressed={inspectorOpen}>
+            {inspectorOpen ? 'Inspector ✕' : 'Inspector'}
+          </button>
+          <button onClick={() => setTreeOpen(v => !v)} style={controlButtonStyle(treeOpen)} aria-label={treeOpen ? 'Close DOM tree' : 'Open DOM tree'} aria-pressed={treeOpen}>
+            {treeOpen ? 'Tree ✕' : 'Tree'}
+          </button>
+          <button onClick={() => {
+            if (diffData) { setDiffData(null); return; }
+            const file = lastLoadedFileRef.current || loadedFile;
+            if (file) vscode?.postMessage({ command: 'requestDiff', file } as FromWebviewMessage);
+          }} style={controlButtonStyle(!!diffData)} aria-label={diffData ? 'Close diff' : 'Show diff preview'} aria-pressed={!!diffData}>
+            {diffData ? 'Diff ✕' : 'Diff'}
+          </button>
+          <button onClick={() => setCascadeOpen(v => !v)} style={controlButtonStyle(cascadeOpen)} aria-label={cascadeOpen ? 'Close CSS cascade' : 'Show CSS cascade'} aria-pressed={cascadeOpen}>
+            {cascadeOpen ? 'CSS ✕' : 'CSS'}
+          </button>
+          {selectedEl && (
+            <div style={{ display: 'flex', gap: 4, padding: '2px 6px', borderRadius: 10, border: `1px solid ${ui.border}`, background: ui.surfaceStrong, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
+              <button onClick={() => handleInsertElement(selectedEl, 'before')} style={{ ...controlButtonStyle(false), fontSize: 11 }} title="Insert before (sibling)" aria-label="Insert element before">
+                + Before
+              </button>
+              <button onClick={() => handleInsertElement(selectedEl, 'after')} style={{ ...controlButtonStyle(false), fontSize: 11 }} title="Insert after (sibling)" aria-label="Insert element after">
+                + After
+              </button>
+              <button onClick={() => handleInsertElement(selectedEl, 'inside')} style={{ ...controlButtonStyle(false), fontSize: 11 }} title="Insert child inside" aria-label="Insert element inside">
+                + Inside
+              </button>
+              <button onClick={() => handleDuplicateElement(selectedEl)} style={{ ...controlButtonStyle(false), fontSize: 11 }} title="Duplicate element (Ctrl+D)" aria-label="Duplicate element">
+                Duplicate <span style={kbdStyle}>⌘D</span>
+              </button>
+              <button onClick={() => handleWrapElement(selectedEl)} style={{ ...controlButtonStyle(false), fontSize: 11 }} title="Wrap in container (Ctrl+G)" aria-label="Wrap element in container">
+                Wrap <span style={kbdStyle}>⌘G</span>
+              </button>
+              <button onClick={() => {
+                handleDeleteElement(selectedEl);
+                for (const el of multiSelectedEls) {
+                  if (el !== selectedEl) handleDeleteElement(el);
+                }
+                setMultiSelectedEls([]);
+              }} style={{ ...controlButtonStyle(false), fontSize: 11, color: '#ef4444' }} title="Delete element (Del)" aria-label="Delete element">
+                Delete{multiSelectedEls.length > 0 ? ` (${multiSelectedEls.length + 1})` : ''} <span style={kbdStyle}>Del</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      <ResponsiveBar currentWidth={responsiveWidth} isDark={isDark} onWidthChange={setResponsiveWidth} />
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      {treeOpen && (
+        <ElementTree
+          canvasEl={canvasEl}
+          selectedEl={selectedEl}
+          isDark={isDark}
+          onSelectElement={(el) => selectElement(el, { notify: true })}
+          onDeleteElement={handleDeleteElement}
+          onDuplicateElement={handleDuplicateElement}
+          onWrapElement={handleWrapElement}
+          onInsertElement={(el) => handleInsertElement(el, 'after')}
+        />
+      )}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
       <div
         ref={(node) => {
           canvasRef.current = node;
@@ -1422,8 +1736,10 @@ export default function App() {
         }}
         style={{
           position: 'relative',
-          width: '100%',
-          flex: 1,
+          flex: responsiveWidth ? 'none' : '1',
+          width: responsiveWidth ?? undefined,
+          maxWidth: responsiveWidth ?? undefined,
+          minWidth: 0,
           minHeight: 0,
           margin: 0,
           padding: 0,
@@ -1442,9 +1758,20 @@ export default function App() {
                 Pick what you’re working on, then hit Start. This is designed to work in <b>any repo</b> (even if you don’t know the framework).
               </div>
 
+              {!quickStartInfo && (
+                <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surface }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${ui.border}`, borderTopColor: brand.teal, animation: 'luiSpin 0.8s linear infinite' }} />
+                  <span style={{ fontSize: 13, color: theme.desc }}>Scanning workspace for projects&hellip;</span>
+                </div>
+              )}
+              <style>{`@keyframes luiSpin { to { transform: rotate(360deg) } }`}</style>
+
               {quickStartInfo ? (
                 <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: `1px solid ${ui.border}`, background: ui.surfaceStrong, color: theme.fg, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}>
-                  <div style={{ fontWeight: 800, fontSize: 13 }}>Detected</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 800, fontSize: 13 }}>Detected</span>
+                    <span style={{ fontSize: 10, color: brand.teal, fontWeight: 600, padding: '1px 6px', borderRadius: 6, background: 'rgba(45,212,191,0.12)', border: '1px solid rgba(45,212,191,0.2)' }}>✓ scan complete</span>
+                  </div>
                   <div style={{ marginTop: 6, fontSize: 13, color: theme.desc, lineHeight: 1.5 }}>
           {detectedReport ? (
                       <>
@@ -2170,7 +2497,98 @@ export default function App() {
           </div>
         )}
       </div>
+      </div>{/* end responsive wrapper */}
       {selectionOverlay}
+      <HoverHighlight
+        canvasEl={canvasEl}
+        selectedEl={selectedEl}
+        isDark={isDark}
+        enabled={!isDragging && !isResizing && !isEditingText}
+      />
+      <SpacingGuides
+        selectedRect={overlayRect}
+        canvasEl={canvasEl}
+        isDark={isDark}
+      />
+      <DimensionTooltip
+        rect={overlayRect}
+        isDragging={isDragging}
+        isResizing={isResizing}
+        isDark={isDark}
+      />
+      {/* Multi-select highlight outlines */}
+      {multiSelectedEls.map((el, i) => {
+        if (!canvasEl || !el.isConnected) return null;
+        const canvasRect = canvasEl.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        return (
+          <div
+            key={i}
+            data-live-ui-overlay="1"
+            style={{
+              position: 'absolute',
+              left: r.left - canvasRect.left + canvasEl.scrollLeft,
+              top: r.top - canvasRect.top + canvasEl.scrollTop,
+              width: r.width,
+              height: r.height,
+              border: '2px dashed rgba(168,85,247,0.7)',
+              borderRadius: 2,
+              pointerEvents: 'none',
+              zIndex: 9998,
+            }}
+          />
+        );
+      })}
+      {inspectorOpen && (
+        <PropertyInspector
+          selectedEl={selectedEl}
+          isDark={isDark}
+          onStyleChange={(prop, value) => {
+            const target = selectedElRef.current;
+            if (!target) return;
+            const prev = (target.style as any)[prop] || '';
+            (target.style as any)[prop] = value;
+            scheduleMeasure('inspectorEdit');
+            const file = target.getAttribute('data-source-file');
+            const lineRaw = target.getAttribute('data-source-line');
+            const line = lineRaw ? Number(lineRaw) : NaN;
+            if (!file || !Number.isFinite(line)) return;
+            undoRedo.push({ el: target, prop, prev, next: value, file, line });
+            const msg: FromWebviewMessage = { command: 'updateStyle', file, line, style: { [prop]: value } };
+            vscode?.postMessage(msg);
+
+            // Apply to multi-selected elements too
+            for (const el of multiSelectedEls) {
+              if (el === target) continue;
+              (el.style as any)[prop] = value;
+              const mFile = el.getAttribute('data-source-file');
+              const mLineRaw = el.getAttribute('data-source-line');
+              const mLine = mLineRaw ? Number(mLineRaw) : NaN;
+              if (mFile && Number.isFinite(mLine)) {
+                const mMsg: FromWebviewMessage = { command: 'updateStyle', file: mFile, line: mLine, style: { [prop]: value } };
+                vscode?.postMessage(mMsg);
+              }
+            }
+          }}
+        />
+      )}
+      </div>
+      {diffData && (
+        <DiffPreview
+          file={diffData.file}
+          original={diffData.original}
+          modified={diffData.modified}
+          isDark={isDark}
+          onClose={() => setDiffData(null)}
+        />
+      )}
+      {cascadeOpen && (
+        <CascadePanel
+          selectedEl={selectedEl}
+          isDark={isDark}
+          onClose={() => setCascadeOpen(false)}
+        />
+      )}
       <DebugOverlay
         enabled={debugEnabled}
         selection={((): SelectionModel | null => {

@@ -140,14 +140,14 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			--bg1:#0b1024;
 			--card:rgba(255,255,255,.06);
 			--card2:rgba(255,255,255,.09);
-			--border:rgba(61, 225, 255, .28);
-			--border2:rgba(255, 117, 217, .25);
+			--border:rgba(45, 212, 191, .28);
+			--border2:rgba(251, 113, 133, .25);
 			--text:rgba(255,255,255,.92);
 			--muted:rgba(255,255,255,.70);
 			--muted2:rgba(255,255,255,.55);
-			--teal:#3DE1FF;
-			--pink:#FF75D9;
-			--violet:#8A5CFF;
+			--teal:#2dd4bf;
+			--pink:#fb7185;
+			--violet:#7c3aed;
 			--shadow: 0 14px 48px rgba(0,0,0,.48);
 			--radius:16px;
 			--radius2:12px;
@@ -160,9 +160,9 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			color:var(--text);
 			font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 			background:
-				radial-gradient(1100px 720px at 18% 14%, rgba(61,225,255,.16), transparent 60%),
-				radial-gradient(900px 640px at 84% 20%, rgba(255,117,217,.12), transparent 62%),
-				radial-gradient(920px 740px at 60% 90%, rgba(138,92,255,.12), transparent 58%),
+				radial-gradient(1100px 720px at 18% 14%, rgba(45,212,191,.16), transparent 60%),
+				radial-gradient(900px 640px at 84% 20%, rgba(251,113,133,.12), transparent 62%),
+				radial-gradient(920px 740px at 60% 90%, rgba(124,58,237,.12), transparent 58%),
 				linear-gradient(180deg, var(--bg0), var(--bg1));
 			overflow:hidden;
 		}
@@ -177,7 +177,7 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			display:flex;
 			flex-direction:column;
 		}
-		.sidebarHeader{padding:14px 14px 10px 14px; border-bottom:1px solid rgba(61,225,255,.18);}
+		.sidebarHeader{padding:14px 14px 10px 14px; border-bottom:1px solid rgba(45,212,191,.18);}
 		.title{font-weight:800; letter-spacing:.2px; font-size:14px;}
 		.subtitle{margin-top:6px; color:var(--muted2); font-size:12px; line-height:1.3;}
 		.searchRow{display:flex; gap:8px; margin-top:10px;}
@@ -185,12 +185,12 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			width:100%;
 			padding:10px 10px;
 			border-radius: 12px;
-			border:1px solid rgba(61,225,255,.22);
+			border:1px solid rgba(45,212,191,.22);
 			background: rgba(0,0,0,.22);
 			color: var(--text);
 			outline:none;
 		}
-		.searchInput:focus{border-color: rgba(61,225,255,.55); box-shadow: 0 0 0 3px rgba(61,225,255,.10)}
+		.searchInput:focus{border-color: rgba(45,212,191,.55); box-shadow: 0 0 0 3px rgba(45,212,191,.10)}
 		.nav{padding:10px; overflow:auto;}
 		.navItem{margin-bottom:8px;}
 		.navBtn{
@@ -204,20 +204,20 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			cursor:pointer;
 			transition: background .12s ease, border-color .12s ease;
 		}
-		.navBtn:hover{background: rgba(255,255,255,.06); border-color: rgba(61,225,255,.18)}
-		.navBtn.active{background: rgba(61,225,255,.10); border-color: rgba(61,225,255,.32)}
+		.navBtn:hover{background: rgba(255,255,255,.06); border-color: rgba(45,212,191,.18)}
+		.navBtn.active{background: rgba(45,212,191,.10); border-color: rgba(45,212,191,.32)}
 		.navLabel{font-weight:700; font-size:13px;}
 		.navMeta{color: var(--muted2); font-size:11px; margin-top:3px;}
-		.navToc{margin-top:8px; padding:10px 10px 8px 10px; border-radius: 12px; border:1px solid rgba(255,117,217,.18); background: rgba(0,0,0,.14); display:none;}
+		.navToc{margin-top:8px; padding:10px 10px 8px 10px; border-radius: 12px; border:1px solid rgba(251,113,133,.18); background: rgba(0,0,0,.14); display:none;}
 		.navToc.visible{display:block;}
 		.navTocTitle{font-weight:900; font-size:11px; color: var(--muted); letter-spacing:.25px; margin-bottom:8px;}
 		.navTocLink{display:block; width:100%; text-align:left; padding:6px 8px; border-radius: 10px; border:1px solid transparent; background: transparent; color: var(--muted); cursor:pointer; font-size:12px;}
-		.navTocLink:hover{background: rgba(255,255,255,.06); border-color: rgba(255,117,217,.18); color: var(--text)}
+		.navTocLink:hover{background: rgba(255,255,255,.06); border-color: rgba(251,113,133,.18); color: var(--text)}
 		.navTocLink.indent{padding-left:16px;}
 		.results{padding:0 10px 10px 10px; display:none;}
 		.results.visible{display:block;}
-		.resultItem{border:1px solid rgba(255,117,217,.22); background: rgba(255,117,217,.06); border-radius: 12px; padding:10px; cursor:pointer; margin-top:8px;}
-		.resultItem:hover{border-color: rgba(255,117,217,.38)}
+		.resultItem{border:1px solid rgba(251,113,133,.22); background: rgba(251,113,133,.06); border-radius: 12px; padding:10px; cursor:pointer; margin-top:8px;}
+		.resultItem:hover{border-color: rgba(251,113,133,.38)}
 		.resultTitle{font-weight:800; font-size:12px;}
 		.resultMeta{color: var(--muted2); font-size:11px; margin-top:4px;}
 
@@ -231,11 +231,11 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 			display:flex;
 			flex-direction:column;
 		}
-		.topbar{padding:12px 14px; border-bottom:1px solid rgba(255,117,217,.18); display:flex; align-items:center; gap:10px;}
+		.topbar{padding:12px 14px; border-bottom:1px solid rgba(251,113,133,.18); display:flex; align-items:center; gap:10px;}
 		.pageTitle{font-weight:900; font-size:14px; letter-spacing:.2px;}
 		.sourceTag{margin-left:auto; color: var(--muted2); font-size:11px; padding:4px 8px; border:1px solid rgba(255,255,255,.14); border-radius:999px; background: rgba(0,0,0,.18)}
 		.contentWrap{padding:14px; overflow:auto;}
-		.content{min-width:0; padding:14px; border-radius: var(--radius); border:1px solid rgba(61,225,255,.18); background: rgba(0,0,0,.16)}
+		.content{min-width:0; padding:14px; border-radius: var(--radius); border:1px solid rgba(45,212,191,.18); background: rgba(0,0,0,.16)}
 
 		/* Markdown content styling */
 		.content h1{margin:0 0 12px 0; font-size:22px;}
@@ -244,7 +244,7 @@ function buildHelpHtml(webview: vscode.Webview, pages: HelpPage[]): string {
 		.content p, .content li{color: var(--muted); line-height:1.55;}
 		.content a{color: var(--teal); text-decoration: none;}
 		.content a:hover{text-decoration: underline;}
-		.content code{font-family: var(--mono); font-size: 12px; padding:.12em .35em; border-radius:8px; background: rgba(61,225,255,.10); border:1px solid rgba(61,225,255,.18); color: rgba(255,255,255,.92)}
+		.content code{font-family: var(--mono); font-size: 12px; padding:.12em .35em; border-radius:8px; background: rgba(45,212,191,.10); border:1px solid rgba(45,212,191,.18); color: rgba(255,255,255,.92)}
 		.content pre{background: rgba(0,0,0,.26); border:1px solid rgba(255,255,255,.12); border-radius: 14px; padding:12px; overflow:auto;}
 		.content pre code{background: transparent; border:none; padding:0;}
 		.content hr{border:none; border-top:1px solid rgba(255,255,255,.10); margin:16px 0;}

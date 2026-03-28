@@ -65,11 +65,7 @@ export type UpdateStyleMessage = {
   command: 'updateStyle';
   file: string;
   line: number;
-  style: {
-    width?: string;
-    height?: string;
-    transform?: string;
-  };
+  style: Record<string, string>;
 };
 
 export type UpdateTextMessage = {
@@ -160,6 +156,84 @@ export type QuickStartMessage = {
   };
 };
 
+export type UndoRedoMessage = {
+  command: 'undoRedo';
+  action: 'undo' | 'redo';
+  file: string;
+  line: number;
+  style: Record<string, string>;
+};
+
+export type DeleteElementMessage = {
+  command: 'deleteElement';
+  file: string;
+  line: number;
+  column?: number;
+  elementId?: string;
+  elementContext?: {
+    tagName: string;
+    id?: string;
+    classList?: string[];
+    role?: string;
+    href?: string;
+    type?: string;
+    text?: string;
+  };
+};
+
+export type InsertElementMessage = {
+  command: 'insertElement';
+  file: string;
+  line: number;
+  column?: number;
+  position: 'before' | 'after' | 'inside';
+  markup: string;
+  elementContext?: {
+    tagName: string;
+    id?: string;
+    classList?: string[];
+    role?: string;
+    href?: string;
+    type?: string;
+    text?: string;
+  };
+};
+
+export type WrapWithBoxMessage = {
+  command: 'wrapWithBox';
+  file: string;
+  line: number;
+  column?: number;
+  tag?: string;
+  className?: string;
+  elementContext?: {
+    tagName: string;
+    id?: string;
+    classList?: string[];
+    role?: string;
+    href?: string;
+    type?: string;
+    text?: string;
+  };
+};
+
+export type DuplicateElementMessage = {
+  command: 'duplicateElement';
+  file: string;
+  line: number;
+  column?: number;
+  elementId?: string;
+  elementContext?: {
+    tagName: string;
+    id?: string;
+    classList?: string[];
+    role?: string;
+    href?: string;
+    type?: string;
+    text?: string;
+  };
+};
+
 export type QuickStartInfoMessage = {
   command: 'quickStartInfo';
   info: {
@@ -176,16 +250,50 @@ export type QuickStartInfoMessage = {
   };
 };
 
-export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage;
+export type WorkspaceConfigMessage = {
+  command: 'workspaceConfig';
+  config: Record<string, unknown>;
+};
+
+export type SaveWorkspaceConfigMessage = {
+  command: 'saveWorkspaceConfig';
+  config: Record<string, unknown>;
+};
+
+export type LoadWorkspaceConfigMessage = {
+  command: 'loadWorkspaceConfig';
+};
+
+export type RequestDiffMessage = {
+  command: 'requestDiff';
+  file: string;
+};
+
+export type DiffResultMessage = {
+  command: 'diffResult';
+  file: string;
+  original: string;
+  modified: string;
+};
+
+export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage;
 export type FromWebviewMessage =
   | ElementClickedMessage
   | ElementSelectedMessage
   | TargetsListMessage
   | UpdateStyleMessage
   | UpdateTextMessage
+  | DeleteElementMessage
+  | InsertElementMessage
+  | WrapWithBoxMessage
+  | DuplicateElementMessage
   | PickTargetFileMessage
   | AutoInstallDepsMessage
-  | QuickStartMessage;
+  | QuickStartMessage
+  | UndoRedoMessage
+  | SaveWorkspaceConfigMessage
+  | LoadWorkspaceConfigMessage
+  | RequestDiffMessage;
 
 export function isToWebviewMessage(value: unknown): value is ToWebviewMessage {
   if (!value || typeof value !== 'object') return false;

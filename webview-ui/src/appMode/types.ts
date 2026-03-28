@@ -8,7 +8,13 @@ export type AppModeViewportPreset =
   | 'iphone14land'
   | 'iphonese'
   | 'iphoneseland'
-  | 'ipad';
+  | 'ipad'
+  | 'ipadland'
+  | 'ipadpro'
+  | 'pixel7'
+  | 'galaxys21'
+  | 'macbook'
+  | 'desktop';
 
 export type AppModeApplyReport = {
   kind: 'ok' | 'warn' | 'err';

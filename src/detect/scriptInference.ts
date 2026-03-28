@@ -8,21 +8,21 @@ export function parsePortFromScript(raw: unknown): number | undefined {
   );
   if (envMatch) {
     const n = Number(envMatch[1]);
-    if (Number.isFinite(n) && n > 0) return n;
+    if (Number.isFinite(n) && n > 0 && n <= 65535) return n;
   }
 
   // Flags: --port 3001, --port=3001, -p 3001
   const flagMatch = s.match(/(?:^|\s)(?:--port(?:\s+|=)|-p\s+)(\d{2,5})(?:\s|$)/i);
   if (flagMatch) {
     const n = Number(flagMatch[1]);
-    if (Number.isFinite(n) && n > 0) return n;
+    if (Number.isFinite(n) && n > 0 && n <= 65535) return n;
   }
 
   // Some tools use --listen <port>
   const listenMatch = s.match(/(?:^|\s)--listen(?:\s+|=)(\d{2,5})(?:\s|$)/i);
   if (listenMatch) {
     const n = Number(listenMatch[1]);
-    if (Number.isFinite(n) && n > 0) return n;
+    if (Number.isFinite(n) && n > 0 && n <= 65535) return n;
   }
 
   return undefined;

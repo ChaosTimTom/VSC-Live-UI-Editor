@@ -85,7 +85,25 @@ If you see an **Apply Anyway** option, it means Live UI Editor isn’t fully con
 - Prefer **Style Target: Tailwind** or **CSS file** for heavily responsive apps.
 
 ---
+## Undo/Redo doesn't seem to work
 
+### Fix
+
+- Make sure the Live UI Editor panel is focused (click inside the preview first).
+- `Ctrl+Z` / `Ctrl+Shift+Z` only applies to changes made inside the editor (style, text, CRUD).
+- Changes applied via **Apply to Code** are separate VS Code document edits — undo those with the normal VS Code undo.
+
+---
+
+## Element Tree / Inspector / Cascade panel is empty
+
+### Fix
+
+1. Select an element in the preview first (click it).
+2. If the tree panel is empty, the page may not have loaded yet — wait for the preview to finish rendering.
+3. Close and re-open the panel.
+
+---
 ## Where are logs?
 
 1. Open VS Code’s Output panel: **View** → **Output**

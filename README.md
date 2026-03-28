@@ -83,8 +83,8 @@ Double-click to edit text inline.
 </td>
 <td width="50%">
 
-### 🗑️ Delete Elements
-Remove JSX elements from source with a single click. Fully undoable with `Ctrl+Z`.
+### 🗑️ Element CRUD
+Insert, duplicate, wrap, and delete elements with toolbar buttons or keyboard shortcuts (`Ctrl+D`, `Ctrl+G`, `Delete`). Multi-select with `Ctrl+Shift+Click` for bulk operations. Fully undoable.
 
 </td>
 </tr>
@@ -114,8 +114,22 @@ Apply style edits in a way that matches your project:
 </td>
 <td width="50%">
 
-### 📱 Mobile/Responsive Workflow
-Preview common device sizes and enable safe-area + warning overlays to catch responsive issues early.
+### 📱 Responsive Bar
+Switch the preview viewport between six breakpoints (Mobile S/M/L, Tablet, Laptop, Desktop) to test responsive layouts.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🔍 Inspector + CSS Cascade
+View and edit every computed CSS property inline. The Cascade panel shows which rules apply, their specificity, and what's overridden.
+
+</td>
+<td width="50%">
+
+### 🌳 Element Tree + Diff Preview
+Browse and search the full DOM tree. Open the diff panel to see a before/after comparison of every HTML change.
 
 </td>
 </tr>
@@ -285,14 +299,19 @@ You can toggle it via the **Tauri Shim** checkbox in the App Mode sidebar.
 |--------|----------|
 | **Select element** | `Click` |
 | **Jump to source** | `Ctrl+Click` |
-| **Multi-select** | `Shift+Click` or `Shift+Drag` |
+| **Multi-select toggle** | `Ctrl+Shift+Click` |
+| **Select all siblings** | `Ctrl+A` |
 | **Select leaf element** | `Alt+Click` |
+| **Select group** | `Shift+Click` |
 | **Move element** | `Drag` selection |
 | **Resize element** | `Drag` corner handle |
-| **Layout mode** | Sidebar dropdown: **Layout: Off / Safe / Full** |
+| **Nudge 1 px / 10 px** | Arrow keys / `Shift+Arrow` |
 | **Edit text** | `Double-click` |
-| **Delete element** | Click `🗑️` button |
-| **Start backend** | Click **Start Backend** |
+| **Duplicate element** | `Ctrl+D` |
+| **Wrap in container** | `Ctrl+G` |
+| **Delete element** | `Delete` / `Backspace` |
+| **Undo / Redo** | `Ctrl+Z` / `Ctrl+Shift+Z` |
+| **Deselect** | `Escape` |
 | **Apply changes** | Click **Apply to Code** |
 | **Discard changes** | Click **Discard** |
 
@@ -375,17 +394,25 @@ The extension auto-detects `{t('translation.key')}` patterns:
 |-------------|---------|
 | VS Code | 1.85.0+ |
 | Node.js | 18+ |
-| Project | Vite + React |
 
-### Framework Support
+### Framework Detection
+
+The extension auto-detects your framework from `package.json`:
 
 | Framework | Status |
 |-----------|--------|
 | Vite + React | ✅ Full support |
 | Vite + React + TS | ✅ Full support |
+| Next.js | ✅ Supported (App & Pages router) |
 | Create React App | ⚠️ Limited (no proxy) |
-| Next.js | 🧪 Experimental |
-| Vue/Svelte | 🚧 Planned |
+| Astro | ✅ Detected |
+| SvelteKit | ✅ Detected |
+| Angular | ✅ Detected |
+| Vue CLI | ✅ Detected |
+| Nuxt | ✅ Detected |
+| Gatsby | ✅ Detected |
+| Remix | ✅ Detected |
+| Static HTML | ✅ Full support (no framework needed) |
 
 ---
 

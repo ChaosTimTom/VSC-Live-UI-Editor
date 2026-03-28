@@ -28,7 +28,7 @@ function clampStyleAdapter(raw: unknown): AppModeStyleAdapter {
 }
 
 function clampViewportPreset(raw: unknown): AppModeViewportPreset {
-  const ok = new Set<AppModeViewportPreset>(['responsive', 'iphone14', 'iphone14land', 'iphonese', 'iphoneseland', 'ipad']);
+  const ok = new Set<AppModeViewportPreset>(['responsive', 'iphone14', 'iphone14land', 'iphonese', 'iphoneseland', 'ipad', 'ipadland', 'ipadpro', 'pixel7', 'galaxys21', 'macbook', 'desktop']);
   return ok.has(raw as AppModeViewportPreset) ? (raw as AppModeViewportPreset) : 'responsive';
 }
 
@@ -67,6 +67,8 @@ export default function AppModeShell() {
 
   const [applyReport, setApplyReport] = useState<AppModeApplyReport | undefined>(undefined);
   const applyReportTimerRef = useRef<number | undefined>(undefined);
+
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
 
   // Restore persisted UI state.
   useEffect(() => {
@@ -136,6 +138,12 @@ export default function AppModeShell() {
       iphonese: { w: 320, h: 568 },
       iphoneseland: { w: 568, h: 320 },
       ipad: { w: 768, h: 1024 },
+      ipadland: { w: 1024, h: 768 },
+      ipadpro: { w: 1024, h: 1366 },
+      pixel7: { w: 412, h: 915 },
+      galaxys21: { w: 360, h: 800 },
+      macbook: { w: 1440, h: 900 },
+      desktop: { w: 1920, h: 1080 },
     };
 
     const p = presets[preset] ?? null;
@@ -143,16 +151,20 @@ export default function AppModeShell() {
       iframe.classList.remove('lui-preset');
       iframe.style.width = '100%';
       iframe.style.height = '100%';
+      iframe.style.transform = zoomLevel !== 100 ? `scale(${zoomLevel / 100})` : '';
+      iframe.style.transformOrigin = 'top left';
       return;
     }
     iframe.classList.add('lui-preset');
     iframe.style.width = `${p.w}px`;
     iframe.style.height = `${p.h}px`;
+    iframe.style.transform = zoomLevel !== 100 ? `scale(${zoomLevel / 100})` : '';
+    iframe.style.transformOrigin = 'top left';
   }
 
   useEffect(() => {
     applyViewportPreset(viewportPreset);
-  }, [viewportPreset]);
+  }, [viewportPreset, zoomLevel]);
 
   // Ensure iframe picks up current mode/debug after navigation/reload.
   useEffect(() => {
@@ -292,7 +304,10 @@ export default function AppModeShell() {
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (applyReportTimerRef.current) window.clearTimeout(applyReportTimerRef.current);
+    };
   }, [vscode, opts.iframeOrigin]);
 
   const onToggleMode = () => {
@@ -353,17 +368,27 @@ export default function AppModeShell() {
     vscode.postMessage({ command: 'openHelp' });
   };
 
+  const onReload = () => {
+    try {
+      const iframe = iframeRef.current;
+      if (iframe) iframe.src = iframe.src;
+    } catch { /* ignore */ }
+  };
+
   const showCss = styleAdapterEffective === 'cssClass' || styleAdapterPref === 'cssClass' || (styleAdapterPref === 'auto' && styleAdapterEffective === '');
 
   return (
     <div className={sidebarCollapsed ? 'lui-root lui-collapsed' : 'lui-root'}>
       <aside className="lui-sidebar">
         <div className="lui-top">
-          <button className="lui-iconBtn" onClick={() => setSidebarCollapsed(v => !v)} title="Toggle sidebar (Ctrl/Cmd+B)">
+          <button className="lui-iconBtn" onClick={() => setSidebarCollapsed(v => !v)} title="Toggle sidebar (Ctrl/Cmd+B)" aria-label="Toggle sidebar">
             {sidebarCollapsed ? '»' : '«'}
           </button>
-          <button className="lui-iconBtn" onClick={onOpenHelp} title="Help (getting started + troubleshooting)">
+          <button className="lui-iconBtn" onClick={onOpenHelp} title="Help (getting started + troubleshooting)" aria-label="Help">
             ?
+          </button>
+          <button className="lui-iconBtn" onClick={onReload} title="Reload preview" aria-label="Reload preview">
+            ↻
           </button>
           {!sidebarCollapsed && (
             <div className="lui-titleWrap">
@@ -442,14 +467,38 @@ export default function AppModeShell() {
 
             <label className="lui-label">
               <span>Viewport</span>
-              <select value={viewportPreset} onChange={(e) => onViewportPresetChange(clampViewportPreset(e.target.value))}>
-                <option value="responsive">Responsive</option>
-                <option value="iphone14">iPhone 14 (390×844)</option>
-                <option value="iphone14land">iPhone 14 (Landscape 844×390)</option>
-                <option value="iphonese">iPhone SE (320×568)</option>
-                <option value="iphoneseland">iPhone SE (Landscape 568×320)</option>
-                <option value="ipad">iPad (768×1024)</option>
+              <select value={viewportPreset} onChange={(e) => onViewportPresetChange(clampViewportPreset(e.target.value))} aria-label="Viewport preset">
+                <optgroup label="Responsive">
+                  <option value="responsive">Responsive (fill)</option>
+                </optgroup>
+                <optgroup label="Phone">
+                  <option value="iphone14">iPhone 14 (390×844)</option>
+                  <option value="iphone14land">iPhone 14 Landscape (844×390)</option>
+                  <option value="iphonese">iPhone SE (320×568)</option>
+                  <option value="iphoneseland">iPhone SE Landscape (568×320)</option>
+                  <option value="pixel7">Pixel 7 (412×915)</option>
+                  <option value="galaxys21">Galaxy S21 (360×800)</option>
+                </optgroup>
+                <optgroup label="Tablet">
+                  <option value="ipad">iPad (768×1024)</option>
+                  <option value="ipadland">iPad Landscape (1024×768)</option>
+                  <option value="ipadpro">iPad Pro (1024×1366)</option>
+                </optgroup>
+                <optgroup label="Desktop">
+                  <option value="macbook">MacBook (1440×900)</option>
+                  <option value="desktop">Desktop HD (1920×1080)</option>
+                </optgroup>
               </select>
+            </label>
+
+            <label className="lui-label">
+              <span>Zoom: {zoomLevel}%</span>
+              <div className="lui-row">
+                <button className="lui-secondary lui-small-btn" onClick={() => setZoomLevel(z => Math.max(25, z - 25))} aria-label="Zoom out">−</button>
+                <input type="range" min={25} max={200} step={25} value={zoomLevel} onChange={e => setZoomLevel(Number(e.target.value))} style={{ flex: 1 }} aria-label="Zoom level" />
+                <button className="lui-secondary lui-small-btn" onClick={() => setZoomLevel(z => Math.min(200, z + 25))} aria-label="Zoom in">+</button>
+                {zoomLevel !== 100 && <button className="lui-secondary lui-small-btn" onClick={() => setZoomLevel(100)} aria-label="Reset zoom">Reset</button>}
+              </div>
             </label>
 
             <label className="lui-check">
@@ -591,6 +640,8 @@ export default function AppModeShell() {
         .lui-secondary { border-color: var(--lui-border); background: var(--lui-surface); opacity: 0.98; }
         .lui-warning { border-color: rgba(255, 180, 60, 0.75); background: var(--lui-surface); }
         .lui-danger { border-color: rgba(255, 120, 120, 0.75); background: var(--lui-surface); }
+
+        .lui-small-btn { padding: 4px 8px; font-size: 12px; min-width: 28px; border-radius: 8px; }
 
         .lui-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .lui-chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--lui-border); background: var(--lui-surface); opacity: 0.98; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }

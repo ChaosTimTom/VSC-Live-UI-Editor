@@ -11,8 +11,8 @@ export type AppProxyServer = {
 
 function injectScriptsIntoHtml(html: string, scripts: { early?: string; late?: string }): string {
 	let out = html;
-	const early = scripts.early ? String(scripts.early) : '';
-	const late = scripts.late ? String(scripts.late) : '';
+	const early = scripts.early ? String(scripts.early).replace(/<\/script/gi, '<\/script') : '';
+	const late = scripts.late ? String(scripts.late).replace(/<\/script/gi, '<\/script') : '';
 
 	if (early) {
 		const tag = `<script>${early}</script>`;
@@ -52,7 +52,7 @@ async function getFreePort(): Promise<number> {
 
 function headerValue(h: unknown): string | undefined {
 	if (typeof h === 'string') return h;
-	if (Array.isArray(h)) return h.join(',');
+	if (Array.isArray(h)) return h.length ? h.join(',') : undefined;
 	return undefined;
 }
 

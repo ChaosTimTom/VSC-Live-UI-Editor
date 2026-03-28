@@ -25,15 +25,15 @@ There are two workflows:
 - **Static HTML Mode**: edit a single `.html` file (no dev server required).
 - **App Mode**: connect to a running dev server (Vite / Next.js / etc.), then stage edits and click **Apply to Code**.
 
-If you’re not sure which one to use, start with **Static HTML Mode**.
+If you're not sure which one to use, start with **Static HTML Mode**.
 
 ---
 
-## Step 1 — Open a folder (not just a file)
+## Step 1 - Open a folder (not just a file)
 
 Live UI Editor needs a *folder* open so it can find your project files.
 
-1. In VS Code, click **File** → **Open Folder…**
+1. In VS Code, click **File** > **Open Folder...**
 2. Choose your project folder
 3. Click **Select Folder**
 
@@ -42,14 +42,14 @@ Live UI Editor needs a *folder* open so it can find your project files.
 - The **Explorer** panel (left side) shows folders/files.
 - The window title shows the folder name.
 
-### If you don’t see the Explorer panel
+### If you don't see the Explorer panel
 
 - Click the Explorer icon on the left sidebar (it looks like two files), or
 - Press `Ctrl+Shift+E`
 
 ---
 
-## Step 2 — Open Live UI Editor
+## Step 2 - Open Live UI Editor
 
 1. Open the Command Palette:
    - Press `Ctrl+Shift+P`
@@ -59,14 +59,15 @@ Live UI Editor needs a *folder* open so it can find your project files.
 ### What you should see
 
 - A new tab opens with the Live UI Editor Welcome / Quick Start screen.
+- The Welcome screen auto-detects your workspace and shows a loading spinner while scanning.
 
 ---
 
-## Step 3 — Pick what to edit (Detected main + other targets)
+## Step 3 - Pick what to edit (Detected main + other targets)
 
-On the Welcome screen you’ll see something like:
+On the Welcome screen you'll see something like:
 
-- **Detected main**: the extension’s best guess of what you probably want
+- **Detected main**: the extension's best guess of what you probably want
 - **Other detected targets**: other valid choices (apps, previews, HTML entrypoints)
 
 Pick the one you want.
@@ -74,11 +75,11 @@ Pick the one you want.
 ### Quick rule of thumb
 
 - If you see an **HTML entrypoint** you recognize (like `index.html`), choose that for a quick win.
-- If you see an **App/dev server** choice, that’s for App Mode.
+- If you see an **App/dev server** choice, that's for App Mode.
 
 ---
 
-## Step 4A — Static HTML Mode (recommended first try)
+## Step 4A - Static HTML Mode (recommended first try)
 
 Use this if you have an `.html` file.
 
@@ -101,13 +102,13 @@ Open the `.html` file and look for changes like:
 
 ---
 
-## Step 4B — App Mode (dev server)
+## Step 4B - App Mode (dev server)
 
 Use this if your project is React/Vite/Next/etc.
 
 App Mode requires your app to be running.
 
-1. Open the Terminal: click **Terminal** → **New Terminal**
+1. Open the Terminal: click **Terminal** > **New Terminal**
 2. If needed, install dependencies: `npm install`
 3. Start the dev server (commonly): `npm run dev`
 4. Wait for a local URL to appear in the terminal (often `http://localhost:3000` or `http://localhost:5173`)
@@ -122,6 +123,31 @@ App Mode requires your app to be running.
 
 ---
 
+## Step 5 - Explore the tool panels
+
+Once you have a preview open, the toolbar gives you access to several tools:
+
+| Panel | What it does |
+|---|---|
+| **Inspector** | View and edit every computed CSS property of the selected element |
+| **Element Tree** | Browse and search the full DOM tree; click to select |
+| **Diff Preview** | See a before/after diff of your HTML changes |
+| **CSS Cascade** | View the full cascade of CSS rules for the selected element |
+| **Responsive Bar** | Switch viewport to Mobile / Tablet / Laptop / Desktop breakpoints |
+
+### Element operations (CRUD)
+
+When an element is selected, you'll see toolbar buttons for:
+
+- **Insert** - add a new element after the selection
+- **Duplicate** (`Ctrl+D`) - clone the selected element
+- **Wrap** (`Ctrl+G`) - wrap the selection in a `<div>`
+- **Delete** (`Delete` / `Backspace`) - remove the selected element
+
+All operations support **undo** (`Ctrl+Z`) and **redo** (`Ctrl+Shift+Z`).
+
+---
+
 ## What gets written to code?
 
 Live UI Editor can write back different kinds of changes:
@@ -131,6 +157,17 @@ Live UI Editor can write back different kinds of changes:
 - **Layout edits**:
   - Static HTML Mode writes layout directly into the HTML.
   - App Mode layout can be **Off / Safe / Full** (see App Mode page).
+- **Element CRUD**: insert, duplicate, wrap, and delete operations are applied to the HTML source.
+
+---
+
+## @ui-wizard chat participant
+
+Live UI Editor includes a chat participant you can use in VS Code's Copilot Chat:
+
+1. Open Copilot Chat (`Ctrl+Shift+I`)
+2. Type `@ui-wizard` followed by your question
+3. The wizard can help scaffold UI, explain layout, and suggest design improvements
 
 ---
 
@@ -138,11 +175,11 @@ Live UI Editor can write back different kinds of changes:
 
 - In **App Mode**, your dev server must be running and reachable.
 - If Apply-to-Code seems flaky, enable **Stable IDs** (App Mode sidebar).
-- If you’re unsure what to run, use **Copy Copilot prompt** on the Welcome screen.
+- If you're unsure what to run, use **Copy Copilot prompt** on the Welcome screen.
 
-## If you’re stuck
+## If you're stuck
 
-If the Welcome screen shows “No folder open” or detection is empty:
+If the Welcome screen shows "No folder open" or detection is empty:
 
 1. Repeat Step 1 (open a folder)
 2. Confirm the folder contains your project files

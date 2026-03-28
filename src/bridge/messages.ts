@@ -106,21 +106,7 @@ export type UpdateStyleMessage = {
 		text?: string;
 	};
 	computedStyle?: Record<string, string>;
-	style: {
-		width?: string;
-		height?: string;
-		transform?: string;
-		margin?: string;
-		marginTop?: string;
-		marginRight?: string;
-		marginBottom?: string;
-		marginLeft?: string;
-		padding?: string;
-		paddingTop?: string;
-		paddingRight?: string;
-		paddingBottom?: string;
-		paddingLeft?: string;
-	};
+	style: Record<string, string>;
 };
 
 export type UpdateTextMessage = {
@@ -197,6 +183,59 @@ export type DeleteElementMessage = {
 	line: number; // 1-based
 	column?: number; // 1-based
 	elementId?: string; // stable id when available (e.g. data-lui)
+	elementContext?: {
+		tagName: string;
+		id?: string;
+		classList?: string[];
+		role?: string;
+		href?: string;
+		type?: string;
+		text?: string;
+	};
+};
+
+export type InsertElementMessage = {
+	command: 'insertElement';
+	file: string;
+	line: number;
+	column?: number;
+	position: 'before' | 'after' | 'inside';
+	markup: string;
+	elementContext?: {
+		tagName: string;
+		id?: string;
+		classList?: string[];
+		role?: string;
+		href?: string;
+		type?: string;
+		text?: string;
+	};
+};
+
+export type WrapWithBoxMessage = {
+	command: 'wrapWithBox';
+	file: string;
+	line: number;
+	column?: number;
+	tag?: string;
+	className?: string;
+	elementContext?: {
+		tagName: string;
+		id?: string;
+		classList?: string[];
+		role?: string;
+		href?: string;
+		type?: string;
+		text?: string;
+	};
+};
+
+export type DuplicateElementMessage = {
+	command: 'duplicateElement';
+	file: string;
+	line: number;
+	column?: number;
+	elementId?: string;
 	elementContext?: {
 		tagName: string;
 		id?: string;
@@ -286,6 +325,14 @@ export type QuickStartMessage = {
 	};
 };
 
+export type UndoRedoMessage = {
+	command: 'undoRedo';
+	action: 'undo' | 'redo';
+	file: string;
+	line: number;
+	style: Record<string, string>;
+};
+
 export type QuickStartInfoMessage = {
 	command: 'quickStartInfo';
 	info: {
@@ -302,7 +349,33 @@ export type QuickStartInfoMessage = {
 	};
 };
 
-export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage;
+export type WorkspaceConfigMessage = {
+	command: 'workspaceConfig';
+	config: Record<string, unknown>;
+};
+
+export type SaveWorkspaceConfigMessage = {
+	command: 'saveWorkspaceConfig';
+	config: Record<string, unknown>;
+};
+
+export type LoadWorkspaceConfigMessage = {
+	command: 'loadWorkspaceConfig';
+};
+
+export type RequestDiffMessage = {
+	command: 'requestDiff';
+	file: string;
+};
+
+export type DiffResultMessage = {
+	command: 'diffResult';
+	file: string;
+	original: string;
+	modified: string;
+};
+
+export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage;
 export type FromWebviewMessage =
 	| ElementClickedMessage
 	| ElementSelectedMessage
@@ -311,6 +384,9 @@ export type FromWebviewMessage =
 	| UpdateStyleMessage
 	| UpdateTextMessage
 	| DeleteElementMessage
+	| InsertElementMessage
+	| WrapWithBoxMessage
+	| DuplicateElementMessage
 	| ApplyPendingEditsMessage
 	| DiscardPendingEditsMessage
 	| SetLayoutApplyMessage
@@ -326,7 +402,11 @@ export type FromWebviewMessage =
 	| OpenAppModeMessage
 	| PickTargetFileMessage
 	| AutoInstallDepsMessage
-	| QuickStartMessage;
+	| QuickStartMessage
+	| UndoRedoMessage
+	| SaveWorkspaceConfigMessage
+	| LoadWorkspaceConfigMessage
+	| RequestDiffMessage;
 
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
@@ -517,6 +597,30 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 		}
 		return true;
 	}
+	if (v.command === 'insertElement') {
+		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
+		const colOk = v.column === undefined || typeof v.column === 'number';
+		if (!colOk) return false;
+		const posOk = v.position === 'before' || v.position === 'after' || v.position === 'inside';
+		if (!posOk) return false;
+		if (typeof v.markup !== 'string') return false;
+		return true;
+	}
+	if (v.command === 'wrapWithBox') {
+		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
+		const colOk = v.column === undefined || typeof v.column === 'number';
+		if (!colOk) return false;
+		const tagOk = v.tag === undefined || typeof v.tag === 'string';
+		const classOk = v.className === undefined || typeof v.className === 'string';
+		return tagOk && classOk;
+	}
+	if (v.command === 'duplicateElement') {
+		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
+		const colOk = v.column === undefined || typeof v.column === 'number';
+		if (!colOk) return false;
+		const idOk = v.elementId === undefined || typeof v.elementId === 'string';
+		return idOk;
+	}
 	if (v.command === 'setTauriShim') {
 		return typeof v.enabled === 'boolean';
 	}
@@ -550,6 +654,21 @@ export function isFromWebviewMessage(value: unknown): value is FromWebviewMessag
 	}
 	if (v.command === 'enableStableIds') {
 		return true;
+	}
+	if (v.command === 'undoRedo') {
+		if (!(v.action === 'undo' || v.action === 'redo')) return false;
+		if (!(typeof v.file === 'string' && typeof v.line === 'number')) return false;
+		if (!v.style || typeof v.style !== 'object') return false;
+		return true;
+	}
+	if (v.command === 'saveWorkspaceConfig') {
+		return typeof v.config === 'object' && v.config !== null;
+	}
+	if (v.command === 'loadWorkspaceConfig') {
+		return true;
+	}
+	if (v.command === 'requestDiff') {
+		return typeof v.file === 'string';
 	}
 	return false;
 }

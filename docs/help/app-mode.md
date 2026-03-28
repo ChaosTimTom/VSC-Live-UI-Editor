@@ -1,4 +1,4 @@
-# App Mode (dev server) — Step-by-step
+# App Mode (dev server) - Step-by-step
 
 App Mode connects Live UI Editor to your *running application* (usually a local dev server) and lets you edit the real UI.
 
@@ -12,13 +12,13 @@ You need:
 - Node.js installed
 - A dev server URL that works in a normal browser (usually `http://127.0.0.1:<port>`)
 
-If you don’t have a running app/dev server, use Static HTML Mode instead.
+If you don't have a running app/dev server, use Static HTML Mode instead.
 
 ---
 
-## Step 1 — Start your dev server
+## Step 1 - Start your dev server
 
-1. Open VS Code’s terminal: **Terminal** → **New Terminal**
+1. Open VS Code's terminal: **Terminal** > **New Terminal**
 2. Install dependencies (only needed once): `npm install`
 3. Start the dev server (common): `npm run dev`
 4. Wait for a message that includes a local URL
@@ -33,7 +33,7 @@ Copy that URL into your normal browser. If it loads, App Mode is much more likel
 
 ---
 
-## Step 2 — Open App Mode in Live UI Editor
+## Step 2 - Open App Mode in Live UI Editor
 
 1. Open the Command Palette: `Ctrl+Shift+P`
 2. Run: **Live UI: Open**
@@ -51,9 +51,9 @@ Copy that URL into your normal browser. If it loads, App Mode is much more likel
 
 ---
 
-## Step 3 — Edit mode vs Browse mode
+## Step 3 - Edit mode vs Browse mode
 
-App Mode has two “interaction modes”:
+App Mode has two interaction modes:
 
 - **Edit mode**: selection overlays, drag/resize, click-to-code.
 - **Browse mode**: your app behaves normally (good for login flows, menus, navigation).
@@ -62,7 +62,7 @@ Use the sidebar button to switch.
 
 ---
 
-## Step 4 — Make an edit and apply it to code
+## Step 4 - Make an edit and apply it to code
 
 1. Switch to **Edit mode**
 2. Click an element
@@ -79,9 +79,31 @@ If you click **Discard**, pending edits are removed and nothing is written.
 
 ---
 
+## Tool panels (available in App Mode too)
+
+App Mode includes the same tool panels as Static HTML Mode:
+
+| Panel | What it does |
+|---|---|
+| **Inspector** | View and edit computed CSS properties of the selected element |
+| **Element Tree** | Browse the full DOM tree with search; click to select |
+| **Diff Preview** | Before/after diff of pending changes |
+| **CSS Cascade** | Full cascade of CSS rules for the selected element |
+| **Responsive Bar** | Switch viewport to common breakpoints |
+
+### Element operations
+
+With an element selected you can **Insert**, **Duplicate** (`Ctrl+D`), **Wrap** (`Ctrl+G`), and **Delete** (`Delete`/`Backspace`). All operations support undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z`).
+
+### Multi-select
+
+Hold `Ctrl+Shift` and click to add elements to the selection. Press `Ctrl+A` to select all siblings. Bulk operations (delete, style changes) apply to every selected element.
+
+---
+
 ## Stable IDs (recommended when Apply-to-Code feels unreliable)
 
-If Apply-to-Code seems to change the wrong place (or can’t find the element), enable Stable IDs.
+If Apply-to-Code seems to change the wrong place (or can't find the element), enable Stable IDs.
 
 1. In the App Mode sidebar, click **Enable Stable IDs**
 2. Follow the prompts
@@ -91,7 +113,7 @@ What Stable IDs does:
 
 - Writes a dev-only Babel plugin file into your app
 - Patches your framework config (Vite/Next) so elements get stable `data-lui` identities
-- Makes element → source mapping much more reliable
+- Makes element to source mapping much more reliable
 
 ---
 
@@ -104,21 +126,21 @@ This controls *where* style changes go:
 - **CSS file**: writes class rules into a chosen CSS file
 - **Inline**: writes inline style props
 
-If you’re unsure, start with **Auto**.
+If you're unsure, start with **Auto**.
 
 ---
 
-## Layout Apply (drag/resize) — choose the safe option first
+## Layout Apply (drag/resize) - choose the safe option first
 
 - **Off (safest)**: preview-only; nothing written for layout moves
 - **Safe**: persists drag moves as margin adjustments (more responsive-friendly)
 - **Full**: persists width/height/transform (advanced)
 
-If you’re just getting started, use **Off** or **Safe**.
+If you're just getting started, use **Off** or **Safe**.
 
 ---
 
-## Remote SSH / Dev Containers / WSL (if you’re using them)
+## Remote SSH / Dev Containers / WSL (if you're using them)
 
 If VS Code is connected to a remote environment:
 
@@ -127,7 +149,7 @@ If VS Code is connected to a remote environment:
 
 App Mode routes the embedded preview through a proxy that works with port-forwarding.
 
-If hot reload (HMR) doesn’t reconnect:
+If hot reload (HMR) doesn't reconnect:
 
 - Confirm the dev server port is forwarded/reachable.
 - Prefer default dev-server configs (same-origin websocket URLs usually work best).

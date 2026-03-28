@@ -4,13 +4,13 @@ Static HTML Mode is the simplest workflow.
 
 You choose one `.html` file, Live UI Editor shows it in a preview, and your edits are written back into that same `.html` file.
 
-## Use Static HTML Mode when…
+## Use Static HTML Mode when...
 
 - You have a plain HTML page (landing page, prototype, email-like layout, etc.)
 - You do *not* want to run a dev server
 - You want changes written directly into the HTML file
 
-## Step 1 — Open Static HTML Mode
+## Step 1 - Open Static HTML Mode
 
 1. Open the Command Palette: `Ctrl+Shift+P`
 2. Run: **Live UI: Open**
@@ -18,31 +18,35 @@ You choose one `.html` file, Live UI Editor shows it in a preview, and your edit
 4. Choose one option:
    - **Start (pick an HTML file)** (recommended)
    - **Use current file** (if you already opened an HTML file tab)
-   - **Try a sample** (if you don’t have HTML yet)
+   - **Try a sample** (if you don't have HTML yet)
 
 ### What you should see
 
 - A preview panel opens showing your HTML page.
 
-## Step 2 — Click to select elements
+## Step 2 - Click to select elements
 
 1. Click an element in the preview.
 2. Look for a selection outline and/or breadcrumbs.
 
 Live UI Editor uses hit-testing so you can still click elements even with the overlay enabled.
 
-### Selection helpers (when clicks feel “hard”)
+### Selection helpers (when clicks feel hard)
 
 - **Group vs Element** selection modes
 - **Select parent** (move your selection up the DOM)
 - **Breadcrumbs** (lets you pick exactly which container you meant)
+
+### Multi-select
+
+Hold `Ctrl+Shift` and click additional elements to add them to the selection. Press `Ctrl+A` to select all siblings. Press `Escape` to clear the multi-select.
 
 ### Modifier keys
 
 - Hold `Shift` to prefer a larger/group selection
 - Hold `Alt` to prefer the closest/leaf element
 
-## Step 3 — Edit text
+## Step 3 - Edit text
 
 1. Double-click text in the preview
 2. Type your new text
@@ -58,7 +62,7 @@ Text editing keys:
 - The preview updates.
 - Your `.html` file changes in VS Code.
 
-## Step 4 — Move and resize (layout edits)
+## Step 4 - Move and resize (layout edits)
 
 1. Drag the selection outline to move.
 2. Drag handles to resize.
@@ -72,14 +76,51 @@ Keyboard nudging:
 
 Static HTML Mode writes layout edits directly into the HTML file (usually as style updates).
 
+## Step 5 - Element operations (CRUD)
+
+With an element selected you can:
+
+| Action | Button | Shortcut |
+|---|---|---|
+| **Insert** a new `<div>` after the selection | Insert button | - |
+| **Duplicate** the selected element | Duplicate button | `Ctrl+D` |
+| **Wrap** the selection inside a new `<div>` | Wrap button | `Ctrl+G` |
+| **Delete** the selected element | Delete button | `Delete` / `Backspace` |
+
+All operations support undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z`).
+
+## Tool panels
+
+Static HTML Mode includes several tool panels accessible from the toolbar:
+
+### Inspector (Property Inspector)
+
+Shows every computed CSS property of the selected element. Edit values inline to change colors, spacing, fonts, and more.
+
+### Element Tree
+
+A collapsible DOM tree of your HTML document with a search bar. Click any node to select it in the preview. The tree highlights the currently selected element.
+
+### Diff Preview
+
+Shows a before/after diff of the HTML source so you can verify exactly what changed before saving.
+
+### CSS Cascade
+
+Displays the CSS cascade for the selected element: which rules apply, in what order, and which properties are overridden. Useful for debugging specificity.
+
+### Responsive Bar
+
+Switch the preview viewport to common breakpoints (Mobile S/M/L, Tablet, Laptop, Desktop) to test how the layout responds.
+
 ## Common problems
 
-### “Nothing happens when I edit”
+### Nothing happens when I edit
 
 - Make sure you selected an element (look for an outline/breadcrumbs)
 - Try selecting a parent container (some text is nested)
 
-### “I can’t select the thing I want”
+### I can't select the thing I want
 
 - Hold `Alt` for the smallest/closest element
 - Hold `Shift` for a larger/group selection

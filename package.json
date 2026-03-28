@@ -1,11 +1,10 @@
 {
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
-  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next). Click-to-code, drag/resize, inline text editing, Tailwind/CSS/inline style targets, Stable IDs, and the @ui-wizard chat participant.",
-  "version": "0.2.3",
+  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next/Angular/Astro/SvelteKit and more). Click-to-code, drag/resize, inline text editing, property inspector, element tree, CSS cascade, diff preview, responsive breakpoints, undo/redo, and the @ui-wizard chat participant.",
+  "version": "0.3.0",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
-  "preview": true,
   "markdown": "github",
   "galleryBanner": {
     "color": "#0b1220",
@@ -87,6 +86,55 @@
         "fullName": "UI Wizard",
         "description": "Edit the currently selected Live UI element via natural language (layout, style suggestions, bulk apply, structure helpers).",
         "isSticky": true
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "liveUI.getStarted",
+        "title": "Get Started with Live UI Editor",
+        "description": "Learn the basics of visual UI editing inside VS Code.",
+        "steps": [
+          {
+            "id": "openFolder",
+            "title": "Open a project folder",
+            "description": "Live UI Editor needs a folder open so it can detect your project.\n\n[Open Folder](command:vscode.openFolder)",
+            "media": {
+              "markdown": "docs/help/getting-started.md"
+            }
+          },
+          {
+            "id": "runOpen",
+            "title": "Run Live UI: Open",
+            "description": "Open the Command Palette and run **Live UI: Open** to launch the Welcome screen.\n\n[Run Live UI: Open](command:liveUI.open)",
+            "media": {
+              "markdown": "docs/help/getting-started.md"
+            }
+          },
+          {
+            "id": "pickTarget",
+            "title": "Pick a target",
+            "description": "Choose an HTML file for Static HTML mode, or a detected app for App Mode. The Welcome screen shows the best match.",
+            "media": {
+              "markdown": "docs/help/getting-started.md"
+            }
+          },
+          {
+            "id": "firstEdit",
+            "title": "Make your first edit",
+            "description": "Click an element to select it, then change text (double-click), adjust styles in the Inspector, or drag to move.",
+            "media": {
+              "markdown": "docs/help/static-html-mode.md"
+            }
+          },
+          {
+            "id": "exploreTools",
+            "title": "Explore the tool panels",
+            "description": "Open the Inspector, Element Tree, Diff Preview, CSS Cascade, and Responsive Bar from the toolbar to inspect and debug your UI.",
+            "media": {
+              "markdown": "docs/help/keyboard-shortcuts.md"
+            }
+          }
+        ]
       }
     ]
   },
