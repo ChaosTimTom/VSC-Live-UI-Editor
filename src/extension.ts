@@ -2417,14 +2417,26 @@ export default function liveUiEditorBabelPlugin(babel) {
 						elementId: message.elementId,
 						uri: targetUri,
 						elementContext: message.elementContext,
+						ancestors: (message as any).ancestors,
+						selectionHints: (message as any).selectionHints,
 						inlineStyle: message.inlineStyle,
 						computedStyle: message.computedStyle,
 					};
 					return;
 				}
 				if (message.command === 'elementUnmapped') {
-					// We can select a DOM node, but cannot map it to source (no debugSource + no Stable IDs).
-					// UI Wizard depends on file/line, so guide the user toward Stable IDs.
+					// Still record context so UI Wizard can at least see a selection
+					// (matches the static-HTML handler behavior).
+					lastSelected = {
+						fileId: lastLoadedFileId ?? '(unmapped)',
+						line: 1,
+						uri: appRoot ?? lastLoadedUri ?? (vscode.workspace.workspaceFolders?.[0]?.uri ?? context.extensionUri),
+						elementContext: (message as any).elementContext,
+						ancestors: (message as any).ancestors,
+						selectionHints: (message as any).selectionHints,
+						inlineStyle: (message as any).inlineStyle,
+						computedStyle: (message as any).computedStyle,
+					};
 					if (!warnedUnmappedSelection) {
 						warnedUnmappedSelection = true;
 						const choice = await vscode.window.showWarningMessage(

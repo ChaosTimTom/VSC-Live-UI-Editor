@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.1
+
+### Bug fixes
+- Fixed: `@ui-wizard` always said "Select an element first" in App Mode when the selected element couldn't be mapped to source (unmapped elements). Now records selection context so UI Wizard can respond.
+- Fixed: App Mode `elementSelected` messages were dropping `ancestors` and `selectionHints` data, reducing UI Wizard's ability to scope CSS selectors and detect repeated items.
+
+### Marketplace
+- Replaced category "Other" with "Programming Languages" for better discoverability.
+- Expanded keywords from 22 to 39 (added angular, vue, svelte, astro, nuxt, css editor, visual css, design tool, frontend, web design, prototype, inspector, devtools, and more).
+- Added 20 GitHub repository topics for SEO.
+- README: added framework badges, demo GIF placeholder, screenshot placeholders, and star/review call-to-action.
+
 ## 0.3.0
 
 ### Editor tools
