@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as cheerio from 'cheerio';
 import * as path from 'path';
 import * as fs from 'fs';
+import { twMerge } from 'tailwind-merge';
 import { Project, SyntaxKind, type JsxAttribute, type JsxSelfClosingElement, type JsxElement } from 'ts-morph';
 
 export type UpdateTextResult = {
@@ -569,15 +570,8 @@ function ensureJsxClassNamesAtLocation(
 	}
 	if (existingValue === undefined) return input;
 
-	const parts = existingValue.split(/\s+/).filter(Boolean);
-	let changed = false;
-	for (const cn of desired) {
-		if (parts.includes(cn)) continue;
-		parts.push(cn);
-		changed = true;
-	}
-	if (!changed) return input;
-	const next = parts.join(' ');
+	const next = [...new Set(twMerge(existingValue, ...desired).split(/\s+/).filter(Boolean))].join(' ');
+	if (next === existingValue) return input;
 	classAttr.setInitializer(`'${next.replace(/'/g, "\\'")}'`);
 	return sourceFile.getFullText();
 }

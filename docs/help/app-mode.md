@@ -159,3 +159,10 @@ If hot reload (HMR) doesn't reconnect:
 ## Backend helper (optional)
 
 If your app also needs a backend/API server (auth, data, etc.), App Mode can help start it via **Start Backend**.
+## Page redesign and source review
+
+Use **Redesign with UI Wizard** to describe a new look for the page. Common React entries and Next.js routes are detected without an element selection. If detection finds multiple files, choose the target.
+
+CSS streams into the preview while a complete source rewrite is prepared. Click **Review source changes** or say `review` to inspect the diff. Say `apply` to save the exact staged rewrite, or `cancel` to clear the preview. If you edited the source after preview, regenerate; your newer changes will be preserved.
+
+Full source redesign currently supports HTML and React JS/TS files. Framework connection and detection cover more frameworks than source rewriting. Review generated logic and handlers as well as appearance.

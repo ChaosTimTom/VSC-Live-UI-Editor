@@ -1,0 +1,39 @@
+name: Publish extension
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: marketplace-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            webview-ui/package-lock.json
+      - run: npm ci
+      - run: npm --prefix webview-ui ci
+      - name: Check release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + require('./package.json').version) process.exit(1)"
+      - run: npm audit --audit-level=high
+      - run: npm --prefix webview-ui audit --audit-level=high
+      - run: npm run package:vsix
+      - name: Publish the validated package
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --no-install vsce publish --packagePath "vscode-live-ui-editor-$(node -p "require('./package.json').version").vsix"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-release
+          path: '*.vsix'

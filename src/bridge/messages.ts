@@ -386,6 +386,8 @@ export type ClearPageCssMessage = {
 
 export type ToWebviewMessage = SetDocumentMessage | PreviewStyleMessage | ClearPreviewMessage | RequestTargetsMessage | QuickStartInfoMessage | WorkspaceConfigMessage | DiffResultMessage | InjectPageCssMessage | ClearPageCssMessage;
 export type FromWebviewMessage =
+	| { command: 'appModeReady' }
+	| { command: 'redesignPage' }
 	| ElementClickedMessage
 	| ElementSelectedMessage
 	| ElementUnmappedMessage
@@ -420,6 +422,8 @@ export type FromWebviewMessage =
 export function isFromWebviewMessage(value: unknown): value is FromWebviewMessage {
 	if (!value || typeof value !== 'object') return false;
 	const v = value as Record<string, unknown>;
+	if (v.command === 'redesignPage') return true;
+	if (v.command === 'appModeReady') return true;
 	if (v.command === 'openHelp') {
 		return true;
 	}

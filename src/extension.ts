@@ -21,14 +21,22 @@ import { detectPreviewTargetsFromPackages, type PackageInfo } from './detect/pre
 import { buildDetectedAppsFromCandidates, defaultPortForFramework } from './detect/apps';
 import { rankHtmlCandidates } from './detect/htmlCandidates';
 import { buildQuickStartNotes, buildRecommendedUrl } from './detect/recommendation';
+import { pageEntryCandidates } from './chat/pageRedesign';
+import { parsePortFromScript } from './detect/scriptInference';
 
 export function activate(context: vscode.ExtensionContext) {
 	const output = vscode.window.createOutputChannel('Live UI Editor');
 	context.subscriptions.push(output);
+	context.subscriptions.push(vscode.commands.registerCommand('liveUI.redesignPage', async () => {
+		await vscode.commands.executeCommand('workbench.action.chat.open', { query: '@ui-wizard redesign this page ' });
+	}));
 	const codeModifier = new CodeModifier();
 	let currentPanel: vscode.WebviewPanel | undefined;
 	let currentPanelMode: 'static' | 'app' = 'static';
 	let currentAppProxy: AppProxyServer | undefined;
+	let currentAppRoot: vscode.Uri | undefined;
+	let currentAppFramework = '';
+	let currentAppPath = '/';
 
 	let hotReloadTimer: NodeJS.Timeout | undefined;
 	let hotReloadPendingUri: vscode.Uri | undefined;
@@ -218,7 +226,7 @@ export function activate(context: vscode.ExtensionContext) {
 	};
 
 	const runInstallInApp = async (appRoot: vscode.Uri, pkg: string): Promise<void> => {
-		const pm = await detectPackageManager();
+		const pm = await detectPackageManager(appRoot);
 		const cmd = pm === 'pnpm'
 			? `pnpm add -D ${pkg}`
 			: pm === 'yarn'
@@ -472,6 +480,33 @@ export default function liveUiEditorBabelPlugin(babel) {
 	registerUiWizard(context, {
 		codeModifier,
 		getSelected: () => lastSelected as SelectedElement | undefined,
+		getPageTarget: async () => {
+			if (currentPanelMode === 'static' && lastLoadedUri) return lastLoadedUri;
+			if (currentPanelMode === 'app' && currentAppRoot) {
+				const candidates: vscode.Uri[] = [];
+				for (const relative of pageEntryCandidates(currentAppFramework, currentAppPath)) {
+					const uri = vscode.Uri.joinPath(currentAppRoot, relative);
+					if (await fileExists(uri)) candidates.push(uri);
+				}
+				// A Vite index.html is the mount shell; prefer the actual application component.
+				if (candidates.length > 1) {
+					const index = candidates.findIndex(uri => /\/index\.html$/i.test(uri.path));
+					if (index >= 0) candidates.splice(index, 1);
+				}
+				if (candidates.length === 1) return candidates[0];
+				if (candidates.length > 1) {
+					const picked = await vscode.window.showQuickPick(candidates.map(uri => ({
+						label: vscode.workspace.asRelativePath(uri, false), uri,
+					})), { title: 'Choose the page to redesign', placeHolder: 'Preview and apply will target this file' });
+					return picked?.uri;
+				}
+			}
+			const selected = lastSelected?.uri;
+			if (selected && /\.(html?|tsx?|jsx?)$/i.test(selected.path) && await fileExists(selected)) return selected;
+			const active = vscode.window.activeTextEditor?.document.uri;
+			if (active && /\.(html?|tsx?|jsx?)$/i.test(active.path) && vscode.workspace.getWorkspaceFolder(active)) return active;
+			return undefined;
+		},
 		getJsxSelectionAtLine,
 		replaceSelectedJsxAtLine,
 		refreshWebviewIfOpen,
@@ -657,6 +692,10 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 		panel.webview.onDidReceiveMessage(async (message: unknown) => {
 			if (!isFromWebviewMessage(message)) return;
+			if (message.command === 'redesignPage') {
+				await vscode.commands.executeCommand('liveUI.redesignPage');
+				return;
+			}
 
 			if (message.command === 'autoInstallDeps') {
 				const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -687,7 +726,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 					'Cancel'
 				);
 				if (confirm !== 'Install') return;
-				const pm = await detectPackageManager();
+				const pm = await detectPackageManager(cwdUri);
 				const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn' : 'npm install';
 				const termName = 'Live UI Setup: Install';
 				let term = vscode.window.terminals.find(t => t.name === termName);
@@ -1251,7 +1290,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 		const appDevScript: 'dev' | 'start' = app.devScript === 'start' ? 'start' : 'dev';
 		let tauriShimEnabled = !!(app as any).isTauri;
 
-		const pkgManager = await detectPackageManager();
+		const pkgManager = await detectPackageManager(appRoot);
 		const host = '127.0.0.1';
 
 		const scriptToCmd = (scriptName: string): string => {
@@ -1309,11 +1348,16 @@ export default function liveUiEditorBabelPlugin(babel) {
 		};
 
 		const autoDetectRunning = async (): Promise<string | undefined> => {
-			for (const url of candidateOrigins(appFramework)) {
-				const ok = await waitForHttpReady(url, 1200);
-				if (ok) return url;
-			}
-			return undefined;
+			const pkg = await readUtf8(vscode.Uri.joinPath(appRoot, 'package.json')).then(JSON.parse).catch(() => undefined);
+			const script = pkg?.scripts?.[qs?.scriptName ?? appDevScript];
+			const inferredPort = parsePortFromScript(script);
+			const origins = [...new Set([
+				...(qs?.defaultPort ? [`http://${host}:${qs.defaultPort}`] : []),
+				...(inferredPort ? [`http://${host}:${inferredPort}`] : []),
+				...candidateOrigins(appFramework),
+			])];
+			const ready = await Promise.all(origins.map(url => waitForHttpReady(url, 1000)));
+			return origins.find((_, index) => ready[index]);
 		};
 
 		// 1) Try to auto-connect first (unless Quick Start provided an explicit URL).
@@ -1771,7 +1815,18 @@ export default function liveUiEditorBabelPlugin(babel) {
 			if (styleDetection?.tailwind.present) return ['tailwind', 'cssClass', 'inline'];
 			return ['cssClass', 'inline'];
 		}
-		async function applyPendingEditsToCode(): Promise<{ applied: number; failed: number; skipped: number; items: AppModeApplyItemReport[] }> {
+		type ApplyResult = { applied: number; failed: number; skipped: number; items: AppModeApplyItemReport[] };
+		let applyTask: Promise<ApplyResult> | undefined;
+		function applyPendingEditsToCode(): Promise<ApplyResult> {
+			if (applyTask) return applyTask;
+			panel?.webview.postMessage({ command: 'appModeApplying', applying: true });
+			applyTask = applyPendingBatch().finally(() => {
+				applyTask = undefined;
+				panel?.webview.postMessage({ command: 'appModeApplying', applying: false });
+			});
+			return applyTask;
+		}
+		async function applyPendingBatch(): Promise<ApplyResult> {
 			if (pendingEdits.size === 0) return { applied: 0, failed: 0, skipped: 0, items: [] };
 			const edits = Array.from(pendingEdits.values());
 			
@@ -1848,8 +1903,8 @@ export default function liveUiEditorBabelPlugin(babel) {
 										continue;
 									}
 									const tokens = tailwindTokensFromStylePatch(style);
-									if (tokens.length === 0) {
-										reason = 'No Tailwind-mappable style properties.';
+									if (tokens.length !== Object.keys(style).length) {
+										reason = 'Tailwind could not represent the complete style patch; trying CSS or inline.';
 										continue;
 									}
 									const ok = await codeModifier.ensureClassNames(targetUri, e.line, tokens, e.column, e.elementContext);
@@ -1905,6 +1960,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 							if (changed) {
 								items.push({ ...base, ok: true, method, reason });
 								appliedCount++;
+								if (pendingEdits.get(pendingKey(e)) === e) pendingEdits.delete(pendingKey(e));
 							} else {
 								items.push({ ...base, ok: false, method, reason: reason || 'no change (node not found or identical value)' });
 								failedCount++;
@@ -1936,6 +1992,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 							if (changed) {
 								items.push({ ...base, ok: true, method });
 								appliedCount++;
+								if (pendingEdits.get(pendingKey(e)) === e) pendingEdits.delete(pendingKey(e));
 							} else {
 								items.push({ ...base, ok: false, method, reason: 'no change (node not found or identical value)' });
 								failedCount++;
@@ -1948,7 +2005,6 @@ export default function liveUiEditorBabelPlugin(babel) {
 					}
 				}
 			}
-			pendingEdits.clear();
 			publishPendingCount();
 			return { applied: appliedCount, failed: failedCount, skipped: skippedCount, items };
 		}
@@ -1968,6 +2024,10 @@ export default function liveUiEditorBabelPlugin(babel) {
 			);
 			panel = created;
 			currentPanel = created;
+			currentAppRoot = appRoot;
+			currentAppFramework = appFramework;
+			currentAppPath = initialPath || '/';
+			lastSelected = undefined;
 			let iframeUrl = `${currentAppProxy!.proxyOrigin}${initialPath}`;
 			// In Remote SSH / Dev Containers / WSL, the webview runs locally but the extension host is remote.
 			// Use VS Code's port-forwarding aware URL so the webview can reach the proxy server.
@@ -2040,6 +2100,17 @@ export default function liveUiEditorBabelPlugin(babel) {
 
 			created.webview.onDidReceiveMessage(async (message: unknown) => {
 				if (!isFromWebviewMessage(message)) return;
+				if (message.command === 'appModeReady') {
+					publishPendingCount();
+					const resolved = resolveEffectiveStyleAdapter();
+					publishStyleAdapterInfo(resolved.effective, resolved.reason);
+					if (cssTargetUri) await setCssTargetUri(cssTargetUri);
+					return;
+				}
+				if (message.command === 'redesignPage') {
+					await vscode.commands.executeCommand('liveUI.redesignPage');
+					return;
+				}
 				if (message.command === 'openHelp') {
 					try {
 						await HelpPanel.show(context);
@@ -2080,7 +2151,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 					});
 					if (!picked || picked.length === 0) return;
 					const u = picked[0];
-					if (!isWithinBasePath(u.fsPath, appRoot.fsPath)) {
+					if (!isWithinBasePath(appRoot.fsPath, u.fsPath)) {
 						vscode.window.showWarningMessage('Live UI Editor: CSS target must be within the app root folder.');
 						return;
 					}
@@ -2576,8 +2647,7 @@ export default function liveUiEditorBabelPlugin(babel) {
 					const key = pendingKey(edit);
 					const existing = pendingEdits.get(key);
 					if (existing && existing.kind === 'style') {
-						existing.style = { ...existing.style, ...edit.style };
-						pendingEdits.set(key, existing);
+						pendingEdits.set(key, { ...existing, style: { ...existing.style, ...edit.style } });
 					} else {
 						pendingEdits.set(key, edit);
 					}

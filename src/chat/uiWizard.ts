@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { CodeModifier } from '../codeModifier/CodeModifier';
+import { validatePageRewrite, pageSourceUnchanged } from './pageRedesign';
 
 export type SelectedElement = {
 	fileId: string;
@@ -1089,6 +1090,7 @@ async function generatePageRewrite(args: {
 		? `You are a senior UI engineer. Rewrite the following React/JSX component according to the user's request and the CSS styles that were approved. ` +
 		  `Incorporate the styles directly into the component (inline styles, className-based with a <style> tag, or a CSS module pattern — whichever fits best). ` +
 		  `Preserve all existing functionality, props, hooks, state, and event handlers. ` +
+		  `Preserve all imports and module directives such as 'use client'. Keep all exports. ` +
 		  `Keep the same export signature. Return ONLY the complete file contents. No markdown. No backticks. No commentary.`
 		: `You are a senior UI engineer. Rewrite the following HTML file according to the user's request and the CSS styles that were approved. ` +
 		  `Embed the CSS in a <style> tag in the <head>. Preserve all existing content, scripts, and functionality. ` +
@@ -1111,7 +1113,7 @@ async function generatePageRewrite(args: {
 		out += fragment;
 	}
 	const result = stripCodeFences(out);
-	return result.length > 50 ? result : undefined;
+	return result.trim() ? result : undefined;
 }
 
 export function registerUiWizard(
@@ -1119,6 +1121,7 @@ export function registerUiWizard(
 	deps: {
 		codeModifier: CodeModifier;
 		getSelected: () => SelectedElement | undefined;
+		getPageTarget: () => Promise<vscode.Uri | undefined>;
 		getJsxSelectionAtLine: (uri: vscode.Uri, lineNumber: number) => Promise<{ range: vscode.Range; snippet: string } | undefined>;
 		replaceSelectedJsxAtLine: (uri: vscode.Uri, lineNumber: number, newJsx: string) => Promise<boolean>;
 		refreshWebviewIfOpen: (uri: vscode.Uri) => Promise<void>;
@@ -1189,7 +1192,23 @@ export function registerUiWizard(
 		uri: vscode.Uri;
 		fileId: string;
 		originalSource: string;
+		rewritten?: string;
 	} | undefined;
+	const redesignDocuments = new Map<string, string>();
+	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('live-ui-redesign', {
+		provideTextDocumentContent: uri => redesignDocuments.get(uri.toString()) ?? '',
+	}));
+	const reviewPageRedesign = async () => {
+		if (!pendingPageRedesign?.rewritten) {
+			void vscode.window.showInformationMessage('Generate a page redesign with @ui-wizard first.');
+			return;
+		}
+		const preview = vscode.Uri.from({ scheme: 'live-ui-redesign', path: pendingPageRedesign.uri.path, query: String(Date.now()) });
+		redesignDocuments.clear();
+		redesignDocuments.set(preview.toString(), pendingPageRedesign.rewritten);
+		await vscode.commands.executeCommand('vscode.diff', pendingPageRedesign.uri, preview, 'Page redesign — source review');
+	};
+	context.subscriptions.push(vscode.commands.registerCommand('liveUI.reviewPageRedesign', reviewPageRedesign));
 
 	const TEXT_STYLE_KEYS = [
 		'color',
@@ -1407,45 +1426,45 @@ export function registerUiWizard(
 		// Page-level redesign: handle pending apply/reject
 		// ------------------------------------------------------------------
 		if (pendingPageRedesign) {
-			if (isPageRedesignApply(request.prompt)) {
-				stream.markdown('Applying page redesign…');
-				const { uri, css, userPrompt: origPrompt, originalSource } = pendingPageRedesign;
-				pendingPageRedesign = undefined;
-				await deps.clearPageCssIfOpen();
-
-				const model = (request as unknown as { model?: vscode.LanguageModelChat }).model ?? (await getAnyCopilotModel(token));
-				if (!model) {
-					stream.markdown('\n\nNo language model available to generate the rewrite. The CSS preview has been cleared.');
-					return;
-				}
-
-				await pushUndoSnapshot('page redesign', [uri]);
-				const ext = uri.path.split('.').pop() || 'html';
-
-				const rewritten = await generatePageRewrite({
-					model,
-					userPrompt: origPrompt,
-					pageSource: originalSource,
-					fileExtension: `.${ext}`,
-					generatedCss: css,
-					token,
-				});
-
+			if (/^\s*(review|diff|show changes)\s*$/i.test(request.prompt)) {
+				await reviewPageRedesign();
+				stream.markdown('Review the source diff, then say **apply** or **cancel**.');
+				return;
+			}
+			if (isPageRedesignApply(request.prompt) && !isPageRedesign(request.prompt)) {
+				const pending = pendingPageRedesign;
+				const { uri, originalSource, rewritten } = pending;
 				if (!rewritten) {
-					stream.markdown('\n\nFailed to generate the full rewrite. Your original file is unchanged. Say "undo" to restore if anything was altered.');
+					stream.markdown('This preview has no validated source rewrite. Describe a new redesign to try again, or say **cancel**.');
 					return;
 				}
-
 				const doc = await vscode.workspace.openTextDocument(uri);
+				if (!pageSourceUnchanged(originalSource, doc.getText())) {
+					stream.markdown('The source file changed since this preview. Your newer edits are preserved. Describe the redesign again to regenerate against the current source.');
+					return;
+				}
+				if (token.isCancellationRequested) return;
+				const version = doc.version;
+				await pushUndoSnapshot('page redesign', [uri]);
+				if (doc.version !== version || !pageSourceUnchanged(originalSource, doc.getText())) {
+					undoStack.pop();
+					stream.markdown('The file changed while preparing the edit. Regenerate the redesign to preserve your changes.');
+					return;
+				}
 				const edit = new vscode.WorkspaceEdit();
 				edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), rewritten);
 				const applied = await vscode.workspace.applyEdit(edit);
-				if (applied) await doc.save();
-
+				if (!applied) {
+					undoStack.pop();
+					stream.markdown('Could not apply the rewrite. Your preview is retained so you can retry.');
+					return;
+				}
+				const saved = await doc.save();
+				if (pendingPageRedesign === pending) pendingPageRedesign = undefined;
+				await deps.clearPageCssIfOpen();
 				await deps.refreshWebviewIfOpen(uri);
-				stream.markdown(applied
-					? '\n\nPage redesign applied and saved! Say "undo" to revert.'
-					: '\n\nFailed to apply the rewrite to the file.');
+				stream.markdown(saved ? 'Page redesign applied and saved. Say **undo** to revert.'
+					: 'Page redesign applied, but saving failed. The changes remain in the editor; save manually or say **undo**.');
 				return;
 			}
 
@@ -1471,10 +1490,9 @@ export function registerUiWizard(
 		// Page-level redesign: detect and execute
 		// ------------------------------------------------------------------
 		if (isPageRedesign(request.prompt)) {
-			const selected = deps.getSelected();
-			const uri = selected?.uri;
+			const uri = await deps.getPageTarget();
 			if (!uri) {
-				stream.markdown('Select any element on the page first so I know which file to redesign. (App Mode: switch to **Edit**, then click an element.)');
+				stream.markdown('Open an HTML page or App Mode first. If your route cannot be detected, open its HTML or React source file in the editor and try again.');
 				return;
 			}
 
@@ -1484,7 +1502,7 @@ export function registerUiWizard(
 				return;
 			}
 
-			stream.markdown('**Page Redesign** — Reading page source and streaming CSS changes to the viewport…\n\n');
+			stream.markdown(`**Page Redesign** — ${vscode.workspace.asRelativePath(uri, false)}\n\nStreaming the visual preview, then preparing a source diff…\n\n`);
 
 			const doc = await vscode.workspace.openTextDocument(uri);
 			const pageSource = doc.getText();
@@ -1502,16 +1520,37 @@ export function registerUiWizard(
 					},
 				});
 
+				if (token.isCancellationRequested) {
+					await deps.clearPageCssIfOpen();
+					return;
+				}
+				const rewritten = await generatePageRewrite({ model, userPrompt: request.prompt, pageSource,
+					fileExtension: `.${ext}`, generatedCss: css, token });
+				if (token.isCancellationRequested) { await deps.clearPageCssIfOpen(); return; }
+				const validation = validatePageRewrite(uri.path, pageSource, rewritten ?? '');
+				if (!validation.valid) {
+					await deps.clearPageCssIfOpen();
+					stream.markdown(`The source rewrite was not staged: ${validation.reason} Your source file is unchanged. Describe a new redesign to try again.`);
+					return;
+				}
+				if (!pageSourceUnchanged(pageSource, doc.getText())) {
+					await deps.clearPageCssIfOpen();
+					stream.markdown('The source changed while generating this redesign. Your changes are preserved; try again against the updated file.');
+					return;
+				}
 				pendingPageRedesign = {
 					css,
 					userPrompt: request.prompt,
 					uri,
-					fileId: selected.fileId,
+					fileId: vscode.workspace.asRelativePath(uri, false),
 					originalSource: pageSource,
+					rewritten,
 				};
 
-				stream.markdown('CSS preview is live in the viewport!\n\n');
-				stream.markdown('- Say **apply** to rewrite the source file with these styles baked in.\n');
+				stream.markdown('Visual preview and source rewrite are ready. Your file has not been changed.\n\n');
+				stream.button({ command: 'liveUI.reviewPageRedesign', title: 'Review source changes' });
+				stream.markdown('- Say **review** to inspect the complete source diff.\n');
+				stream.markdown('- Say **apply** to save this exact staged rewrite.\n');
 				stream.markdown('- Say **cancel** to revert and discard.\n');
 				stream.markdown('- Or describe a different direction to regenerate.');
 			} catch (e) {

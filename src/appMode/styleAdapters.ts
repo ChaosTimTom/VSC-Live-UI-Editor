@@ -72,7 +72,8 @@ export async function detectStyleSystems(appRoot: vscode.Uri): Promise<StyleSyst
 	const hasTailwindDep = hasDep(pkg, 'tailwindcss');
 	const hasPostcssDep = hasDep(pkg, 'postcss');
 	const hasAutoprefixerDep = hasDep(pkg, 'autoprefixer');
-	const tailwindPresent = hasTailwindDep || !!tailwindConfigFound;
+	const tailwindPresent = hasTailwindDep || !!tailwindConfigFound?.startsWith('tailwind.config.')
+		|| hasDep(pkg, '@tailwindcss/vite') || hasDep(pkg, '@tailwindcss/postcss');
 	const tailwindConfidence = tailwindPresent
 		? (hasTailwindDep && tailwindConfigFound ? 1 : 0.7)
 		: 0;
@@ -176,13 +177,17 @@ export function tailwindTokensFromStylePatch(style: Record<string, string>): str
 			case 'borderColor': tokens.push(`border-[${escapeTailwindArbitraryValue(value)}]`); break;
 
 			case 'opacity': tokens.push(`opacity-[${escapeTailwindArbitraryValue(value)}]`); break;
+			case 'boxShadow': tokens.push(`shadow-[${escapeTailwindArbitraryValue(value)}]`); break;
+			case 'transform': tokens.push(`[transform:${escapeTailwindArbitraryValue(value)}]`); break;
+			case 'fontFamily': tokens.push(`font-[${escapeTailwindArbitraryValue(value)}]`); break;
+			case 'gap': tokens.push(`gap-[${escapeTailwindArbitraryValue(value)}]`); break;
 
 			case 'display': {
 				const dv = value.toLowerCase();
 				if (['block','inline-block','inline','flex','inline-flex','grid','inline-grid','none'].includes(dv)) {
 					tokens.push(dv === 'none' ? 'hidden' : dv);
 				} else {
-					tokens.push(`display-[${escapeTailwindArbitraryValue(value)}]`);
+					tokens.push(`[display:${escapeTailwindArbitraryValue(value)}]`);
 				}
 				break;
 			}
@@ -190,6 +195,7 @@ export function tailwindTokensFromStylePatch(style: Record<string, string>): str
 			case 'position': {
 				const pv = value.toLowerCase();
 				if (['absolute','relative','fixed','sticky','static'].includes(pv)) tokens.push(pv);
+				else tokens.push(`[position:${escapeTailwindArbitraryValue(value)}]`);
 				break;
 			}
 			case 'top': tokens.push(`top-[${escapeTailwindArbitraryValue(value)}]`); break;
@@ -198,7 +204,11 @@ export function tailwindTokensFromStylePatch(style: Record<string, string>): str
 			case 'left': tokens.push(`left-[${escapeTailwindArbitraryValue(value)}]`); break;
 
 			default:
-				// Intentionally ignore properties we can't safely map yet.
+				// Tailwind supports arbitrary CSS properties. Preserve the entire patch.
+				if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(k) || /^--[\w-]+$/.test(k)) {
+					const property = k.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+					tokens.push(`[${property}:${escapeTailwindArbitraryValue(value)}]`);
+				}
 				break;
 		}
 	}

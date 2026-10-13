@@ -43,19 +43,9 @@
 
 ---
 
-<!-- 🎬 DEMO: Replace with your GIF or video once recorded -->
-<p align="center">
-  <img src="images/demo.gif" alt="Live UI Editor — click, drag, edit, apply to code" width="800">
-  <br>
-  <sub>Click any element → edit styles, text, or layout → changes apply to your source code</sub>
-</p>
+**New in 0.4:** protected page redesign with a complete source diff, improved framework and package-manager detection, retryable failed edits, and clearer App Mode controls that follow your VS Code theme.
 
-<!-- Optional: link a YouTube video for people who want a longer walkthrough -->
-<!-- <p align="center">
-  <a href="https://youtu.be/YOUR_VIDEO_ID">
-    <img src="https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube" alt="Watch Demo">
-  </a>
-</p> -->
+**Choose your workflow:** open HTML directly, connect to a running app, or use **Live UI: Redesign Page** to start a guided AI redesign.
 
 ---
 
@@ -175,11 +165,13 @@ Browse and search the full DOM tree. Open the diff panel to see a before/after c
 <td colspan="2">
 
 ### 🎨 Page Redesign (Figma-like)
-Ask `@ui-wizard` to redesign an **entire page** — no element selection needed. Describe the look you want in plain language and watch CSS stream into the live viewport in real-time. Review the result, then approve to bake it into your source file or reject to revert.
+Ask `@ui-wizard` to redesign an **entire page** — no element selection needed for a loaded HTML page or a detected app entry. Describe the look you want, watch CSS stream into the viewport, then use **Review source changes** to inspect the complete rewrite. Say `apply` to save that exact staged result, or `cancel` to discard it. Newer source edits are protected: regenerate if the file changed after preview.
+
+Full source redesign supports **HTML and React JS/TS files**. Framework detection and preview connection cover more frameworks; this does not imply source rewriting support for every framework. AI-generated logic still needs your review.
 
 ```
 @ui-wizard redesign this page as a modern SaaS landing page
-@ui-wizard give it a dark theme with glassmorphic cards
+@ui-wizard give this page a dark theme with glassmorphic cards
 @ui-wizard restyle the entire layout as a portfolio
 ```
 
@@ -239,7 +231,7 @@ Join the Discord: https://discord.gg/QHnHhCjWDQ
 
 ---
 
-## 🧠 First-Time Setup (Idiot-Proof)
+## 🧠 Guided Setup
 
 Most people should run **Live UI: Open** and follow the Welcome screen.
 
@@ -311,7 +303,7 @@ Help:
 - `@ui-wizard give this a dark theme`
 - `@ui-wizard restyle the entire layout as a blog`
 
-CSS streams into the viewport in real-time. After reviewing, say `apply` to save or `cancel` to revert.
+CSS streams into the viewport in real-time. Choose **Review source changes** (or say `review`), then say `apply` to save the staged rewrite or `cancel` to revert. In App Mode, common React entry files and Next.js routes are detected automatically; if multiple targets exist, choose the file to redesign.
 ### 3) Fix “Identity: Unmapped” (highly recommended)
 
 If the sidebar shows **Identity: Unmapped**, selection is working, but the editor can’t map that element back to source code.
@@ -450,8 +442,9 @@ The extension auto-detects `{t('translation.key')}` patterns:
 
 | Requirement | Version |
 |-------------|---------|
-| VS Code | 1.85.0+ |
-| Node.js | 18+ |
+| VS Code | 1.91.0+ |
+| Node.js for your app | Your framework's supported version |
+| AI redesign | A language model available in VS Code Chat, such as Copilot |
 
 ### Framework Detection
 
@@ -532,7 +525,7 @@ Contributions are welcome! Here's how:
 
 1. **Fork** the repository
 2. **Clone** your fork: `git clone https://github.com/YOUR_USERNAME/VSC-Live-UI-Editor.git`
-3. **Install** dependencies: `npm install && cd webview-ui && npm install`
+3. **Install** dependencies with Node.js 24+: `npm ci` then `npm --prefix webview-ui ci`
 4. **Build**: `npm run build`
 5. **Test** in VS Code: Press `F5` to launch Extension Development Host
 6. **Submit** a pull request
@@ -541,6 +534,8 @@ Contributions are welcome! Here's how:
 
 ```bash
 npm run build          # Build extension + webview
+npm run check          # Check both TypeScript projects and run tests
+npm run package:vsix   # Validate, build, and package an installable release
 npm run watch:extension # Watch mode for extension
 npm run build:webview   # Build webview UI only
 ```

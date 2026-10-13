@@ -1,8 +1,8 @@
 {
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
-  "description": "Visual UI editing in VS Code: Static HTML + App Mode (React/Vite/Next/Angular/Astro/SvelteKit and more). Click-to-code, drag/resize, inline text editing, property inspector, element tree, CSS cascade, diff preview, responsive breakpoints, undo/redo, page redesign (Figma-like), and the @ui-wizard chat participant.",
-  "version": "0.3.3",
+  "description": "Visual editing for HTML and running apps: click to code, inspect styles, drag and resize, responsive previews, and AI page redesign with live preview, source diff review, and protected apply.",
+  "version": "0.4.0",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "markdown": "github",
@@ -32,7 +32,7 @@
   },
   "license": "MIT",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages",
@@ -97,6 +97,14 @@
       {
         "command": "liveUI.openAppMode",
         "title": "Live UI: Open (App Mode)"
+      },
+      {
+        "command": "liveUI.redesignPage",
+        "title": "Live UI: Redesign Page"
+      },
+      {
+        "command": "liveUI.reviewPageRedesign",
+        "title": "Live UI: Review Page Redesign"
       }
     ],
     "chatParticipants": [
@@ -159,34 +167,43 @@
     ]
   },
   "scripts": {
-    "clean": "npx --yes rimraf dist",
-    "clean:all": "npx --yes rimraf dist webview-ui/dist",
-    "typecheck": "tsc -p . --noEmit",
+    "clean": "rimraf dist",
+    "clean:all": "rimraf dist webview-ui/dist",
+    "typecheck": "npm run typecheck:extension && npm run typecheck:webview",
+    "typecheck:extension": "tsc -p . --noEmit",
+    "typecheck:webview": "npm --prefix webview-ui run typecheck",
+    "check": "npm run typecheck && npm test",
     "build:webview": "npm --prefix webview-ui run build",
     "build:extension": "npm run clean && node ./esbuild.extension.mjs",
-    "build": "npm run build:webview && npm run typecheck && npm run build:extension",
+    "test:bundle": "node tools/smokeBundle.cjs",
+    "build": "npm run typecheck && npm run build:webview && npm run build:extension",
     "watch:extension": "npm run typecheck && node ./esbuild.extension.mjs --watch",
     "package:webview": "npm --prefix webview-ui run build",
-    "package:vsix": "npm run build && npx --yes @vscode/vsce package",
-    "publish:vsce": "npm run build && npx --yes @vscode/vsce publish",
+    "vscode:prepublish": "npm run check && npm run build && npm run test:bundle",
+    "package:vsix": "vsce package --no-dependencies",
+    "publish:vsce": "vsce publish --no-dependencies",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
+    "cheerio": "1.0.0",
     "http-proxy": "^1.18.1",
-    "markdown-it": "^14.1.0",
+    "markdown-it": "^15.0.2",
     "markdown-it-anchor": "^9.2.0",
     "parse5": "^7.2.1",
-    "ts-morph": "^23.0.0"
+    "tailwind-merge": "^3.7.0",
+    "ts-morph": "^28.0.0"
   },
   "devDependencies": {
     "@types/http-proxy": "^1.17.16",
-    "@types/node": "^20.11.30",
-    "@types/vscode": "^1.85.0",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.91.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.27.2",
+    "jsdom": "^29.1.1",
     "rimraf": "^6.1.2",
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0"
+    "vite": "^6.4.4",
+    "vitest": "^5.0.4"
   }
 }

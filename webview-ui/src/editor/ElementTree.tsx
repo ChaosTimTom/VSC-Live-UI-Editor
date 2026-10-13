@@ -104,7 +104,7 @@ function TreeNodeRow({
   onWrap?: (el: HTMLElement) => void;
   onInsert?: (el: HTMLElement, position: 'before' | 'after' | 'inside') => void;
   filterQuery: string;
-  nodeRef?: React.RefObject<HTMLDivElement | null>;
+  nodeRef?: React.RefObject<HTMLDivElement>;
 }) {
   const [hovered, setHovered] = useState(false);
   const isSelected = node.el === selectedEl;

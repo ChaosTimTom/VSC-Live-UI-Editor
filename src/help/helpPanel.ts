@@ -38,7 +38,7 @@ async function readUtf8(uri: vscode.Uri): Promise<string> {
 	return Buffer.from(bytes).toString('utf8');
 }
 
-function getMarkdownRenderer(): MarkdownIt {
+function getMarkdownRenderer() {
 	const md = new MarkdownIt({
 		html: false,
 		linkify: true,
@@ -46,7 +46,6 @@ function getMarkdownRenderer(): MarkdownIt {
 	});
 
 	md.use(markdownItAnchor, {
-		permalink: false,
 		level: [1, 2, 3, 4],
 	});
 

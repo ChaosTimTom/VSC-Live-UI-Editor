@@ -51,6 +51,8 @@ export default function AppModeShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mode, setMode] = useState<'browse' | 'edit'>('edit');
   const [pendingCount, setPendingCount] = useState(0);
+  const [applying, setApplying] = useState(false);
+  const [hint, setHint] = useState('Click an element to edit. Changes stay pending until you apply them.');
   const [identityKind, setIdentityKind] = useState<AppModeIdentityKind>('unknown');
 
   const [layoutApplyMode, setLayoutApplyMode] = useState<AppModeLayoutApplyMode>('off');
@@ -107,9 +109,9 @@ export default function AppModeShell() {
   }, [vscode, sidebarCollapsed, mode, debugSafe, tauriShimEnabled, layoutApplyMode, styleAdapterPref, viewportPreset]);
 
   const stable = identityKind === 'stable';
-  const canApply = pendingCount > 0 && stable;
-  const canApplyUnsafe = pendingCount > 0;
-  const canDiscard = pendingCount > 0;
+  const canApply = pendingCount > 0 && stable && !applying;
+  const canApplyUnsafe = pendingCount > 0 && !applying;
+  const canDiscard = pendingCount > 0 && !applying;
 
   function postToIframe(message: unknown) {
     try {
@@ -232,6 +234,10 @@ export default function AppModeShell() {
       // Extension -> webview messages
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg = data as any;
+      if (msg.command === 'appModeApplying') {
+        setApplying(msg.applying === true);
+        return;
+      }
       if (msg.command === 'appModePendingCount') {
         setPendingCount(typeof msg.count === 'number' ? msg.count : 0);
         return;
@@ -249,7 +255,7 @@ export default function AppModeShell() {
         return;
       }
       if (msg.command === 'appModeHint') {
-        // Optional: could surface in UI later.
+        if (typeof msg.text === 'string') setHint(msg.text);
         return;
       }
       if (msg.command === 'appModeCssTarget') {
@@ -303,7 +309,7 @@ export default function AppModeShell() {
           setApplyReport({ kind, text });
 
           if (applyReportTimerRef.current) window.clearTimeout(applyReportTimerRef.current);
-          applyReportTimerRef.current = window.setTimeout(() => setApplyReport(undefined), 6500);
+          if (!failed) applyReportTimerRef.current = window.setTimeout(() => setApplyReport(undefined), 6500);
         } catch {
           setApplyReport({ kind: 'err', text: 'Apply report: (failed to render details)' });
         }
@@ -312,6 +318,7 @@ export default function AppModeShell() {
     };
 
     window.addEventListener('message', onMessage);
+    vscode.postMessage({ command: 'appModeReady' });
     return () => {
       window.removeEventListener('message', onMessage);
       if (applyReportTimerRef.current) window.clearTimeout(applyReportTimerRef.current);
@@ -407,6 +414,8 @@ export default function AppModeShell() {
         </div>
 
         <div className="lui-section">
+          <div className="lui-section-title">Design workspace</div>
+          <p className="lui-hint" role="status">{hint}</p>
           <div className="lui-row">
             <button className="lui-primary" onClick={onToggleMode} title="Toggle Edit/Browse">
               {mode === 'edit' ? 'Switch to Browse' : 'Switch to Edit'}
@@ -419,7 +428,7 @@ export default function AppModeShell() {
           </div>
 
           <div className="lui-actions">
-            <button className="lui-primary" onClick={() => onApply(false)} disabled={!canApply}>Apply to Code</button>
+            <button className="lui-primary" onClick={() => onApply(false)} disabled={!canApply}>{applying ? 'Applying…' : `Apply${pendingCount ? ` ${pendingCount} edit${pendingCount === 1 ? '' : 's'}` : ' to Code'}`}</button>
             {!stable && (
               <button className="lui-warning" onClick={() => onApply(true)} disabled={!canApplyUnsafe} title="Unsafe: applies without Stable IDs (may hit wrong element if mapping is ambiguous).">
                 Apply Anyway
@@ -429,8 +438,15 @@ export default function AppModeShell() {
           </div>
         </div>
 
+        <section className="lui-section lui-redesign">
+          <div className="lui-section-title">Page redesign</div>
+          <div className="lui-hint">Describe a new look. Preview it live, review the source changes, then apply.</div>
+          <button className="lui-primary" onClick={() => vscode.postMessage({ command: 'redesignPage' })}>Redesign with UI Wizard</button>
+          <div className="lui-small">Try: “redesign this page as a modern portfolio”</div>
+        </section>
+
         <details className="lui-details" open>
-          <summary>Targeting</summary>
+          <summary>Source connection</summary>
           <div className="lui-detailsBody">
             <button className="lui-primary" onClick={onEnableStableIds} title="Enable Stable IDs for reliable targeting">Enable Stable IDs</button>
             <button className="lui-secondary" onClick={onFixTargeting} disabled={identityKind === 'stable'} title="Try to auto-fix targeting">Fix targeting</button>
@@ -439,7 +455,7 @@ export default function AppModeShell() {
         </details>
 
         <details className="lui-details" open>
-          <summary>Style</summary>
+          <summary>Save styles</summary>
           <div className="lui-detailsBody">
             <label className="lui-label">
               <span>Style Target</span>
@@ -462,14 +478,14 @@ export default function AppModeShell() {
         </details>
 
         <details className="lui-details" open>
-          <summary>Layout & View</summary>
+          <summary>Layout & responsive preview</summary>
           <div className="lui-detailsBody">
             <label className="lui-label">
               <span>Layout mode</span>
               <select value={layoutApplyMode} onChange={(e) => onLayoutApplyModeChange(clampLayoutMode(e.target.value))}>
-                <option value="off">Off</option>
-                <option value="safe">Safe</option>
-                <option value="full">Full</option>
+                <option value="off">Preview only</option>
+                <option value="safe">Save movement as margins</option>
+                <option value="full">Save movement and size</option>
               </select>
             </label>
 
@@ -590,6 +606,14 @@ export default function AppModeShell() {
 
         .lui-root { height: 100vh; width: 100vw; display: grid; grid-template-columns: 320px 1fr; background: transparent; }
         .lui-root.lui-collapsed { grid-template-columns: 52px 1fr; }
+        .lui-collapsed .lui-section, .lui-collapsed .lui-details, .lui-collapsed .lui-footer { display: none; }
+        .lui-collapsed .lui-top { flex-direction: column; }
+        .lui-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--vscode-descriptionForeground, #adb9cb); }
+        .lui-redesign { border-color: var(--lui-border-strong); }
+        button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--vscode-focusBorder, #2dd4bf); outline-offset: 3px; }
+        .lui-hint { margin: 0; }
+        @media (max-width: 640px) { .lui-root { grid-template-columns: 250px minmax(0, 1fr); } }
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
         .lui-sidebar {
           border-right: 1px solid var(--lui-border);
@@ -682,6 +706,23 @@ export default function AppModeShell() {
         .lui-toast-ok { color: rgba(80, 180, 120, 0.95); }
         .lui-toast-warn { color: rgba(255, 180, 60, 0.95); }
         .lui-toast-err { color: rgba(255, 120, 120, 0.95); }
+
+        /* Follow the editor's theme, including light and high-contrast themes. */
+        .lui-root {
+          --lui-panel: var(--vscode-sideBar-background, #101820);
+          --lui-card: var(--vscode-editor-background, #15202b);
+          --lui-surface: var(--vscode-input-background, #1e2b38);
+          --lui-surface-strong: var(--vscode-input-background, #1e2b38);
+          --lui-border: var(--vscode-panel-border, #314151);
+          --lui-border-strong: var(--vscode-focusBorder, #2dd4bf);
+          --lui-glow: none;
+          background: var(--vscode-editor-background, #101820);
+        }
+        .lui-sidebar { backdrop-filter: none; }
+        .lui-section, .lui-details { border-radius: 9px; backdrop-filter: none; box-shadow: none; }
+        .lui-primary { background: var(--vscode-button-background, #0f766e); color: var(--vscode-button-foreground, white); text-shadow: none; font-weight: 600; }
+        .lui-primary:hover { background: var(--vscode-button-hoverBackground, #115e59); }
+        .lui-small { white-space: normal; line-height: 1.45; }
       `}</style>
     </div>
   );

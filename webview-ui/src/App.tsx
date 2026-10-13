@@ -739,7 +739,7 @@ export default function App() {
           command: 'updateStyle',
           file,
           line,
-          style: { transform }
+          style: { transform: transform ?? '' }
         };
         vscode?.postMessage(msg);
       }, 250);
@@ -755,7 +755,7 @@ export default function App() {
       if (event.data.command === 'setDocument') {
         setLoadedFile(event.data.file);
         lastLoadedFileRef.current = event.data.file;
-        setLoadedHtml(event.data.html);
+        setRenderedHtml(event.data.html);
         // New document => clear previews
         previewOriginalRef.current.clear();
 
@@ -1646,6 +1646,9 @@ export default function App() {
               <div><b>Shortcuts:</b> Ctrl/Cmd+Click jump • Alt+Click leaf • Shift+Click group • Arrow keys nudge (Shift=10px)</div>
               <div><b>Text editing:</b> Double-click text • Enter save • Esc cancel • Click away saves</div>
               <div style={{ marginTop: 8 }}>
+                <button onClick={() => vscode?.postMessage({ command: 'redesignPage' })} style={controlButtonStyle(false)} title="Redesign this page with UI Wizard">
+                  Redesign page
+                </button>
                 <button onClick={() => vscode?.postMessage({ command: 'openHelp' })} style={controlButtonStyle(false)}>
                   Open full HELP.md
                 </button>

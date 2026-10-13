@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as net from 'net';
 import type { AddressInfo } from 'net';
 import * as http from 'http';
+import * as https from 'https';
 
 export type ViteAppCandidate = {
 	root: vscode.Uri;
@@ -100,7 +101,11 @@ export async function getFreePort(): Promise<number> {
 
 function requestOnce(url: string, timeoutMs: number): Promise<boolean> {
 	return new Promise((resolve) => {
-		const req = http.get(url, (res) => {
+		let parsed: URL;
+		try { parsed = new URL(url); } catch { resolve(false); return; }
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') { resolve(false); return; }
+		const transport = parsed.protocol === 'https:' ? https : http;
+		const req = transport.get(parsed, (res) => {
 			res.resume();
 			resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 500);
 		});
@@ -127,7 +132,25 @@ async function workspaceHasFile(glob: string): Promise<boolean> {
 	return found.length > 0;
 }
 
-export async function detectPackageManager(): Promise<'pnpm' | 'yarn' | 'npm'> {
+export async function detectPackageManager(root?: vscode.Uri): Promise<'pnpm' | 'yarn' | 'npm'> {
+	if (root) {
+		// Respect the selected app and its monorepo ancestors, not another workspace's locks.
+		let dir = root;
+		const folder = vscode.workspace.getWorkspaceFolder(root);
+		for (let depth = 0; depth < 15; depth++) {
+			const pkg = await readJson(vscode.Uri.joinPath(dir, 'package.json'));
+			const declared = String(pkg?.packageManager ?? '').split('@')[0];
+			if (declared === 'pnpm' || declared === 'yarn' || declared === 'npm') return declared;
+			if (await fileExists(vscode.Uri.joinPath(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+			if (await fileExists(vscode.Uri.joinPath(dir, 'yarn.lock'))) return 'yarn';
+			if (await fileExists(vscode.Uri.joinPath(dir, 'package-lock.json'))) return 'npm';
+			if (!folder || dir.toString() === folder.uri.toString()) break;
+			const parent = vscode.Uri.joinPath(dir, '..');
+			if (parent.toString() === dir.toString()) break;
+			dir = parent;
+		}
+		return 'npm';
+	}
 	if (await workspaceHasFile('pnpm-lock.yaml')) return 'pnpm';
 	if (await workspaceHasFile('yarn.lock')) return 'yarn';
 	return 'npm';

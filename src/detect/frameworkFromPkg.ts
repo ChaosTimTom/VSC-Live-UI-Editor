@@ -5,7 +5,6 @@ export function detectFrameworkFromPkg(pkg: any): AppFramework {
   const has = (name: string) => Object.prototype.hasOwnProperty.call(deps, name);
 
   if (has('next')) return 'next';
-  if (has('vite') || has('@vitejs/plugin-react') || has('@vitejs/plugin-react-swc')) return 'vite';
   if (has('react-scripts')) return 'cra';
   if (has('astro')) return 'astro';
   if (has('@sveltejs/kit')) return 'sveltekit';
@@ -14,6 +13,8 @@ export function detectFrameworkFromPkg(pkg: any): AppFramework {
   if (has('nuxt')) return 'nuxt';
   if (has('gatsby')) return 'gatsby';
   if (has('@remix-run/dev') || has('remix')) return 'remix';
+  // Meta-frameworks also depend on Vite. Their own launch behavior takes precedence.
+  if (has('vite') || has('@vitejs/plugin-react') || has('@vitejs/plugin-react-swc')) return 'vite';
 
   return 'generic';
 }

@@ -329,7 +329,7 @@ Type one of these in VS Code Chat:
 
 ### Page redesign (Figma-like) — no element selection needed
 
-You can ask UI Wizard to redesign an entire page. No element selection is required.
+You can ask UI Wizard to redesign an entire HTML page or React entry file. A loaded HTML page or a detected app entry needs no element selection. If more than one entry is found, choose the source file. For an undetected route, open its HTML or React source in the editor first.
 
 Examples:
 
@@ -343,11 +343,13 @@ How it works:
 
 1. Type a page-level prompt ("redesign", "restyle", "overhaul", "give this page a … theme", etc.).
 2. CSS streams into the live viewport in real-time (~300 ms flushes) so you can watch the transformation.
-3. When it finishes, review the result.
-4. Say `apply` (or `yes`, `looks good`, `ship it`) to bake the CSS into your source file.
+3. UI Wizard prepares and validates the complete source rewrite without saving it. Click **Review source changes** or say `review` to inspect the diff.
+4. Say `apply` (or `yes`, `looks good`, `ship it`) to save that exact staged rewrite. If the source changed since preview, regenerate so your newer edits are preserved.
 5. Say `cancel` (or `no`, `revert`, `undo`) to discard and revert.
 
 Tip: You can also describe what kind of site it is for better results — "this is a marketing site, keep all the current features but make it look professional".
+
+Start from **Live UI: Redesign Page** in the Command Palette or **Redesign with UI Wizard** in App Mode. Review generated behavior and event handlers as well as the appearance; syntax validation does not prove functional equivalence. Full source rewriting currently supports HTML and React JS/TS, while app detection and visual previews support additional frameworks.
 
 ---
 

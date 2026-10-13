@@ -9,6 +9,21 @@ webview-ui/package.json
 node_modules/**
 .vscode/**
 tools/**
+.github/**
+.cache/**
+test/**
+vitest.config.ts
+AUTO_DETECT_AND_SETUP_PLAN.md
+RELEASING.md
+docs/social-posts.md
+docs/devto-article.md
+images/logo.png
+images/fist 12 hours live.png
+images/marketplace 2.png
+images/published vsc marketplace.png
+images/published vsc.png
+webview-ui/index.html
+webview-ui/appMode.html
 
 # Dev-only / source-only
 src/**

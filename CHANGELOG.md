@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.4.0
+
+### Page redesign
+- Detect loaded HTML pages, common React app entries, and Next.js routes without requiring an element selection. Choose a target when detection is ambiguous.
+- Stage the complete generated rewrite during preview; review it in a VS Code source diff and apply that exact result.
+- Reject malformed source, missing component exports, and removed or modified HTML scripts before staging.
+- Preserve edits made after preview; failed apply operations remain retryable, and save failures are reported accurately.
+- Add **Live UI: Redesign Page**, **Live UI: Review Page Redesign**, and direct redesign buttons.
+
+### Reliability and detection
+- Fix Static HTML document loading and enforce type-checking for both the extension and webview.
+- Fix the CSS target picker and retain failed pending edits instead of clearing the entire batch.
+- Serialize apply operations and preserve edits staged while another batch is saving.
+- Prefer meta-framework detection over shared Vite dependencies, respect each app's package-manager declaration and ancestor lockfiles, and probe configured dev-server ports concurrently.
+- Stop treating generic PostCSS configs as Tailwind and preserve mixed style patches with arbitrary CSS utilities and conflict-aware class merging.
+- Restore App Mode adapter state through an explicit webview readiness handshake.
+
+### UI and releases
+- Refresh App Mode with VS Code theme colors, clearer saving and layout labels, visible setup hints, a dedicated page-redesign section, keyboard focus indicators, and a working collapsed sidebar.
+- Upgrade dependencies and build tooling, add workflow and rendered-webview tests, and add Windows/Linux CI plus a validated Marketplace release workflow.
+- Refresh Marketplace description, README, help, release instructions, and package exclusions. Require VS Code 1.91+ for stable Chat APIs.
+
 ## 0.3.3
 
 ### Docs
