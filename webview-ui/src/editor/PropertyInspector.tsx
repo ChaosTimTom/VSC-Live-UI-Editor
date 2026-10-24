@@ -76,8 +76,8 @@ export function PropertyInspector({ selectedEl, isDark, onStyleChange }: Propert
       margin: parseBoxValues(selectedEl, 'margin'),
       padding: parseBoxValues(selectedEl, 'padding'),
       border: parseBoxValues(selectedEl, 'border'),
-      width: `${Math.round(rect.width)}px`,
-      height: `${Math.round(rect.height)}px`,
+      width: cs.width === 'auto' ? `${selectedEl.offsetWidth}px` : cs.width,
+      height: cs.height === 'auto' ? `${selectedEl.offsetHeight}px` : cs.height,
     });
 
     const get = (p: string) => cs.getPropertyValue(p)?.trim() || '';

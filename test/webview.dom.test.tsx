@@ -33,12 +33,26 @@ async function post(data: any) {
 }
 
 describe('rendered extension webviews', () => {
+  it('keeps the welcome screen out of a persisted fixed-width preview', async () => {
+    await act(async () => root.render(<App />));
+    await post({ command: 'workspaceConfig', config: { responsiveWidth: 1024 } });
+    expect((container.querySelector('[data-live-ui-paper]') as HTMLElement).style.width).toBe('100%');
+    expect(container.querySelector('button[aria-label="Auto"]')?.getAttribute('aria-pressed')).toBe('true');
+  });
+  it('isolates project styles and scripts from editor controls', async () => {
+    await act(async () => root.render(<App />));
+    await post({ command: 'setDocument', file: 'sample.html', html: '<html><head><style>body { width: 2000px } button { display:none }</style><script>throw new Error("project script")</script></head><body><p>Page</p></body></html>' });
+    const shadow = container.querySelector('[data-live-ui-document]')?.shadowRoot;
+    expect(shadow?.querySelector('p')?.textContent).toBe('Page');
+    expect(shadow?.querySelector('script')).toBeNull();
+    expect(container.querySelector('style')?.textContent ?? '').not.toContain('width: 2000px');
+  });
   it('loads and refreshes static documents through the real setDocument handler', async () => {
     await act(async () => root.render(<App />));
     await post({ command: 'setDocument', file: 'sample.html', html: '<main><h1>Loaded preview</h1></main>' });
-    expect(container.querySelector('h1')?.textContent).toBe('Loaded preview');
+    expect(container.querySelector('[data-live-ui-document]')?.shadowRoot?.querySelector('h1')?.textContent).toBe('Loaded preview');
     await post({ command: 'setDocument', file: 'sample.html', html: '<main><h1>Updated preview</h1></main>' });
-    expect(container.querySelector('h1')?.textContent).toBe('Updated preview');
+    expect(container.querySelector('[data-live-ui-document]')?.shadowRoot?.querySelector('h1')?.textContent).toBe('Updated preview');
   });
   it('shows actionable App Mode hints and keeps failed apply reports visible', async () => {
     await act(async () => root.render(<AppModeShell />));

@@ -11,8 +11,11 @@ node_modules/**
 tools/**
 .github/**
 .cache/**
+**/*.log
+**/*.tmp
 test/**
 vitest.config.ts
+playwright.config.ts
 AUTO_DETECT_AND_SETUP_PLAN.md
 RELEASING.md
 docs/social-posts.md

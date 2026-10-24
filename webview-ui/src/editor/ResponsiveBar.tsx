@@ -7,12 +7,12 @@ export interface Breakpoint {
 }
 
 const DEFAULT_BREAKPOINTS: Breakpoint[] = [
+  { label: 'Auto', width: null, icon: '↔️' },
   { label: 'Mobile S', width: 320, icon: '📱' },
   { label: 'Mobile L', width: 425, icon: '📱' },
   { label: 'Tablet', width: 768, icon: '📋' },
   { label: 'Laptop', width: 1024, icon: '💻' },
   { label: 'Desktop', width: 1440, icon: '🖥️' },
-  { label: 'Auto', width: null, icon: '↔️' },
 ];
 
 export interface ResponsiveBarProps {
@@ -20,9 +20,11 @@ export interface ResponsiveBarProps {
   isDark: boolean;
   onWidthChange: (width: number | null) => void;
   customBreakpoints?: Breakpoint[];
+  zoom?: number | 'fit';
+  onZoomChange?: (zoom: number | 'fit') => void;
 }
 
-export function ResponsiveBar({ currentWidth, isDark, onWidthChange, customBreakpoints }: ResponsiveBarProps) {
+export function ResponsiveBar({ currentWidth, isDark, onWidthChange, customBreakpoints, zoom = 'fit', onZoomChange }: ResponsiveBarProps) {
   const breakpoints = customBreakpoints ?? DEFAULT_BREAKPOINTS;
 
   const colors = isDark
@@ -45,15 +47,16 @@ export function ResponsiveBar({ currentWidth, isDark, onWidthChange, customBreak
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
         flexShrink: 0,
-        overflow: 'hidden',
+        overflowX: 'auto',
+        minHeight: 34,
       }}
     >
-      <span style={{ fontSize: 11, color: colors.text, marginRight: 4, whiteSpace: 'nowrap' }}>Viewport:</span>
+      <span style={{ fontSize: 11, color: colors.text, marginRight: 4, whiteSpace: 'nowrap' }}>Preview:</span>
       {breakpoints.map((bp) => (
         <button
           key={bp.label}
           onClick={() => onWidthChange(bp.width)}
-          title={bp.width ? `${bp.label} (${bp.width}px)` : bp.label}
+          title={bp.width ? `${bp.label} (${bp.width}px)` : 'Auto — use all available editor width'}
           aria-label={bp.label}
           aria-pressed={isActive(bp)}
           style={{
@@ -69,6 +72,8 @@ export function ResponsiveBar({ currentWidth, isDark, onWidthChange, customBreak
             color: isActive(bp) ? colors.activeText : colors.text,
             fontWeight: isActive(bp) ? 600 : 400,
             whiteSpace: 'nowrap',
+            flexShrink: 0,
+            order: bp.width === null ? 0 : 2,
             transition: 'background 0.15s, color 0.15s',
           }}
           onMouseEnter={(e) => {
@@ -83,8 +88,19 @@ export function ResponsiveBar({ currentWidth, isDark, onWidthChange, customBreak
           {bp.width && <span style={{ fontSize: 10, opacity: 0.7 }}>{bp.width}</span>}
         </button>
       ))}
+      {onZoomChange && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, order: 1, color: colors.text, fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          Zoom
+          <select aria-label="Preview zoom" value={zoom} onChange={event => onZoomChange(event.target.value === 'fit' ? 'fit' : Number(event.target.value))}
+            style={{ font: 'inherit', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 4, padding: 3 }}>
+            <option value="fit">Fit to width</option>
+            <option value={0.5}>50%</option><option value={0.75}>75%</option><option value={1}>100%</option>
+            <option value={1.25}>125%</option><option value={1.5}>150%</option>
+          </select>
+        </label>
+      )}
       {currentWidth !== null && (
-        <span style={{ fontSize: 10, color: colors.text, marginLeft: 'auto', opacity: 0.7 }}>
+        <span style={{ fontSize: 10, color: colors.text, marginLeft: 'auto', opacity: 0.7, order: 3 }}>
           {currentWidth}px
         </span>
       )}

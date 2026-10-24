@@ -42,7 +42,8 @@ function getMatchedRules(el: HTMLElement): MatchedRule[] {
 
   // 1. Collect from stylesheets
   try {
-    for (const sheet of Array.from(document.styleSheets)) {
+    const root = el.getRootNode() as Document | ShadowRoot;
+    for (const sheet of Array.from(root.styleSheets)) {
       let cssRules: CSSRuleList;
       try {
         cssRules = sheet.cssRules;

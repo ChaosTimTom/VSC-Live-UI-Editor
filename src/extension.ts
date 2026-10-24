@@ -550,12 +550,13 @@ export default function liveUiEditorBabelPlugin(babel) {
 		};
 
 		const listHtmlCandidates = async (): Promise<DetectionReportHtmlCandidate[]> => {
-			// Heuristic ranking: index.html and /public/ score higher. Keep dist/build too.
-			const files = await vscode.workspace.findFiles(
+			// Search source first so a tree of packaged releases cannot consume the scan limit.
+			let files = await vscode.workspace.findFiles(
 				'**/*.{html,htm}',
-				'**/{node_modules,.git,.hg,.svn}/**',
-				40
+				'**/{node_modules,.git,.hg,.svn,dist,build,out,release,releases,artifacts,coverage,.next,.output}/**',
+				200
 			);
+			if (!files.length) files = await vscode.workspace.findFiles('**/*.{html,htm}', '**/{node_modules,.git,.hg,.svn}/**', 200);
 			const rels = files.map(uri => vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/'));
 			return rankHtmlCandidates(rels, 12);
 		};
@@ -642,6 +643,9 @@ export default function liveUiEditorBabelPlugin(babel) {
 			hasAppsOrPreviews: (hasApps || hasPreviews),
 			hasHtmlCandidates: htmlCandidates.length > 0,
 		});
+		if (htmlCandidates.length && htmlCandidates.every(candidate => (candidate.score ?? 0) < 0)) {
+			notes.push('Only packaged/build HTML was found. Open the project source folder or pick its original HTML file before editing release copies.');
+		}
 
 		const report: DetectionReport = {
 			apps: detectedApps,

@@ -2,7 +2,7 @@
   "name": "vscode-live-ui-editor",
   "displayName": "Live UI Editor",
   "description": "Visual editing for HTML and running apps: click to code, inspect styles, drag and resize, responsive previews, and AI page redesign with live preview, source diff review, and protected apply.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "TheImmersiveSaga",
   "icon": "images/icon.png",
   "markdown": "github",
@@ -176,6 +176,7 @@
     "build:webview": "npm --prefix webview-ui run build",
     "build:extension": "npm run clean && node ./esbuild.extension.mjs",
     "test:bundle": "node tools/smokeBundle.cjs",
+    "test:browser": "playwright test",
     "build": "npm run typecheck && npm run build:webview && npm run build:extension",
     "watch:extension": "npm run typecheck && node ./esbuild.extension.mjs --watch",
     "package:webview": "npm --prefix webview-ui run build",
@@ -195,6 +196,7 @@
     "ts-morph": "^28.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/http-proxy": "^1.17.16",
     "@types/node": "^22.20.5",
     "@types/vscode": "1.91.0",
@@ -205,5 +207,8 @@
     "typescript": "^5.4.5",
     "vite": "^6.4.4",
     "vitest": "^5.0.4"
+  },
+  "overrides": {
+    "@azure/msal-node": "^7.1.1"
   }
 }

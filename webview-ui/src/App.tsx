@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StaticDocument, staticPageCss } from './editor/StaticDocument';
 import { isToWebviewMessage, type FromWebviewMessage, type QuickStartInfoMessage } from './bridge/messages';
 import { DebugOverlay, type DebugStats } from './editor/debugOverlay';
 import type { SelectionModel } from './editor/types';
@@ -137,6 +138,17 @@ export default function App() {
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [previewZoom, setPreviewZoom] = useState<number | 'fit'>('fit');
+  const panKeyRef = useRef(false);
+  const panRef = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const bindCanvas = useCallback((node: HTMLDivElement | null) => {
+    canvasRef.current = node;
+    setCanvasEl(node);
+  }, []);
   const [renderedHtml, setRenderedHtml] = useState<string>('');
   const [loadedFile, setLoadedFile] = useState<string>('');
 
@@ -164,6 +176,41 @@ export default function App() {
   const [treeOpen, setTreeOpen] = useState<boolean>(false);
   const [multiSelectedEls, setMultiSelectedEls] = useState<HTMLElement[]>([]);
   const [responsiveWidth, setResponsiveWidth] = useState<number | null>(null);
+  const actualZoom = renderedHtml
+    ? (previewZoom === 'fit' ? Math.max(0.01, Math.min(1, availableWidth / Math.max(1, responsiveWidth ?? 0, contentWidth, availableWidth))) : previewZoom)
+    : 1;
+  const previewWidth = renderedHtml ? (responsiveWidth ?? (availableWidth || undefined)) : undefined;
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const measure = () => {
+      setAvailableWidth(viewport.clientWidth);
+      setContentWidth(canvasRef.current?.scrollWidth ?? 0);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    if (canvasEl) observer.observe(canvasEl);
+    const mutation = new MutationObserver(measure);
+    if (canvasEl) mutation.observe(canvasEl, { childList: true, subtree: true, attributes: true });
+    window.addEventListener('resize', measure);
+    return () => { observer.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); };
+  }, [canvasEl, renderedHtml, responsiveWidth]);
+
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => {
+      const target = event.composedPath()[0];
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (event.code === 'Space' && renderedHtml) { panKeyRef.current = true; event.preventDefault(); }
+    };
+    const clear = () => { panKeyRef.current = false; };
+    const keyUp = (event: KeyboardEvent) => { if (event.code === 'Space') clear(); };
+    window.addEventListener('keydown', keyDown);
+    window.addEventListener('keyup', keyUp);
+    window.addEventListener('blur', clear);
+    return () => { window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', clear); };
+  }, [renderedHtml]);
   const [diffData, setDiffData] = useState<{ file: string; original: string; modified: string } | null>(null);
   const [cascadeOpen, setCascadeOpen] = useState(false);
 
@@ -599,6 +646,7 @@ export default function App() {
   };
 
   const selectElement = (el: HTMLElement, opts?: { leaf?: HTMLElement | null; notify?: boolean }) => {
+    selectedElRef.current = el;
     setSelectedEl(el);
     if (opts?.leaf && opts.leaf.isConnected) leafElRef.current = opts.leaf;
     if (opts?.notify) postElementSelected(el);
@@ -611,6 +659,8 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const origin = e.composedPath()[0];
+      if (origin instanceof HTMLElement && (origin.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(origin.tagName))) return;
       // Undo/Redo: Ctrl+Z / Ctrl+Shift+Z (or Cmd on Mac)
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         if (e.shiftKey) {
@@ -813,7 +863,7 @@ export default function App() {
           styleEl.id = 'live-ui-editor-page-css';
           canvas.appendChild(styleEl);
         }
-        styleEl.textContent = (event.data as any).css || '';
+        styleEl.textContent = staticPageCss((event.data as any).css || '');
       }
       if (event.data.command === 'clearPageCss') {
         const canvas = canvasRef.current;
@@ -1320,8 +1370,8 @@ export default function App() {
     const target = selectedElRef.current;
     const start = (dragTranslateRef as any).start as { id: number; x: number; y: number; tx: number; ty: number } | undefined;
     if (!target || !start || start.id !== e.pointerId) return;
-    const dx = e.clientX - start.x;
-    const dy = e.clientY - start.y;
+    const dx = (e.clientX - start.x) / actualZoom;
+    const dy = (e.clientY - start.y) / actualZoom;
     const nx = start.tx + dx;
     const ny = start.ty + dy;
     dragTranslateRef.current = [nx, ny];
@@ -1356,8 +1406,8 @@ export default function App() {
       dir,
       x: e.clientX,
       y: e.clientY,
-      w: rect.width,
-      h: rect.height,
+      w: rect.width / actualZoom,
+      h: rect.height / actualZoom,
       tx,
       ty,
     };
@@ -1372,8 +1422,8 @@ export default function App() {
       | undefined;
     if (!target || !st || st.id !== e.pointerId) return;
 
-    const dx = e.clientX - st.x;
-    const dy = e.clientY - st.y;
+    const dx = (e.clientX - st.x) / actualZoom;
+    const dy = (e.clientY - st.y) / actualZoom;
 
     let nextW = st.w;
     let nextH = st.h;
@@ -1515,6 +1565,7 @@ export default function App() {
               onPointerCancel={onResizeHandleUp}
             />
             <div
+              data-live-ui-resize="se"
               style={handleStyle(r.x + r.width - half, r.y + r.height - half, 'nwse-resize')}
               onPointerDown={onResizeHandleDown('se')}
               onPointerMove={onResizeHandleMove}
@@ -1597,7 +1648,7 @@ export default function App() {
       backdropFilter: 'blur(12px)',
       WebkitBackdropFilter: 'blur(12px)',
     }}>
-        <div style={{ flex: '1 1 520px', minWidth: 260 }}>
+        <div style={{ flex: '1 1 520px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img
         src={logo}
@@ -1606,7 +1657,7 @@ export default function App() {
       />
         </div>
         <p style={{ marginTop: 8, color: theme.desc, lineHeight: 1.5, fontSize: 13, maxWidth: 920 }}>
-          Click to select. Drag to move (snaps). Arrow keys nudge (Shift=10px). Drag handles to resize. Ctrl/Cmd+Click to jump to code. Alt+Click forces leaf selection.
+          Click to select. Drag the selection grip to move; drag its handles to resize. Use Auto to fill the editor, Fit to width to see wide pages, or Space + drag to pan.
         </p>
         {breadcrumbs.length ? (
           <div style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: theme.desc }}>
@@ -1734,7 +1785,10 @@ export default function App() {
           )}
         </div>
       </div>
-      <ResponsiveBar currentWidth={responsiveWidth} isDark={isDark} onWidthChange={setResponsiveWidth} />
+      <ResponsiveBar currentWidth={renderedHtml ? responsiveWidth : null} isDark={isDark} onWidthChange={width => {
+        setResponsiveWidth(width);
+        setPreviewZoom('fit');
+      }} zoom={previewZoom} onZoomChange={setPreviewZoom} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {treeOpen && (
         <ElementTree
@@ -1748,31 +1802,48 @@ export default function App() {
           onInsertElement={(el) => handleInsertElement(el, 'after')}
         />
       )}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
-      <div
-        ref={(node) => {
-          canvasRef.current = node;
-          setCanvasEl(node);
+      <div ref={viewportRef} data-live-ui-viewport="1" onScroll={() => scheduleMeasure('viewportScroll')}
+        title={renderedHtml ? 'Scroll to explore the page. Middle-drag or hold Space and drag to pan.' : undefined}
+        onPointerDownCapture={event => {
+          if (!renderedHtml || (event.button !== 1 && !(event.button === 0 && panKeyRef.current))) return;
+          const viewport = event.currentTarget;
+          event.preventDefault(); event.stopPropagation();
+          viewport.setPointerCapture(event.pointerId);
+          panRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+          setIsPanning(true);
         }}
+        onPointerMove={event => {
+          const pan = panRef.current;
+          if (!pan || pan.id !== event.pointerId) return;
+          event.currentTarget.scrollLeft = pan.left - (event.clientX - pan.x);
+          event.currentTarget.scrollTop = pan.top - (event.clientY - pan.y);
+        }}
+        onPointerUp={event => {
+          if (panRef.current?.id === event.pointerId) { panRef.current = null; setIsPanning(false); }
+        }}
+        onPointerCancel={() => { panRef.current = null; setIsPanning(false); }}
+        style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', position: 'relative', cursor: isPanning ? 'grabbing' : undefined }}>
+      <div
+        ref={renderedHtml ? undefined : bindCanvas}
+        data-live-ui-paper="1"
         style={{
           position: 'relative',
-          flex: responsiveWidth ? 'none' : '1',
-          width: responsiveWidth ?? undefined,
-          maxWidth: responsiveWidth ?? undefined,
+          width: previewWidth ?? '100%',
           minWidth: 0,
-          minHeight: 0,
+          contain: 'layout style',
           margin: 0,
           padding: 0,
           border: 'none',
           background: theme.bg,
-          overflow: 'auto',
+          minHeight: '100%',
+          zoom: Math.max(0.01, actualZoom),
         }}
       >
         {renderedHtml ? (
-          <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+          <StaticDocument html={renderedHtml} onCanvas={bindCanvas} />
         ) : (
-          <div style={{ padding: 22, display: 'flex', justifyContent: 'center' }}>
-            <div style={{ width: 'min(920px, 100%)', borderRadius: 18, border: `1px solid ${ui.border}`, background: ui.card, padding: 18, color: theme.fg, boxShadow: ui.glow, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}>
+          <div style={{ padding: 'clamp(8px, 2vw, 22px)', display: 'flex', justifyContent: 'center', boxSizing: 'border-box', minWidth: 0 }}>
+            <div data-live-ui-welcome="1" style={{ width: 'min(920px, 100%)', minWidth: 0, boxSizing: 'border-box', overflowWrap: 'anywhere', borderRadius: 18, border: `1px solid ${ui.border}`, background: ui.card, padding: 18, color: theme.fg, boxShadow: ui.glow, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}>
               <div style={{ fontWeight: 950, fontSize: 22, letterSpacing: 0.2 }}>Welcome</div>
               <div style={{ marginTop: 8, color: theme.desc, lineHeight: 1.5, fontSize: 14 }}>
                 Pick what you’re working on, then hit Start. This is designed to work in <b>any repo</b> (even if you don’t know the framework).
@@ -2532,6 +2603,7 @@ export default function App() {
       />
       <DimensionTooltip
         rect={overlayRect}
+        scale={actualZoom}
         isDragging={isDragging}
         isResizing={isResizing}
         isDark={isDark}

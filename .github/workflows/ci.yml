@@ -23,6 +23,8 @@ jobs:
       - run: npm ci
       - run: npm --prefix webview-ui ci
       - run: npm run package:vsix
+      - run: npx --no-install playwright install --with-deps chromium
+      - run: npm run test:browser
       - run: npm audit --audit-level=high
       - run: npm --prefix webview-ui audit --audit-level=high
       - uses: actions/upload-artifact@v4

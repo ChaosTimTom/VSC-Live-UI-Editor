@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.4.1
+
+### Preview sizing and movement
+- Fix the Welcome screen being squeezed or clipped by a saved device-width preset.
+- Add **Fit to width** and explicit preview zoom; wide pages adapt when the editor pane changes size.
+- Preserve two-axis scrolling at actual size and add middle-drag / Space + drag panning.
+- Keep Auto and zoom controls accessible at the start of the horizontally scrollable preview toolbar.
+- Isolate Static HTML in a shadow tree so page CSS cannot resize the editor, hide its buttons, or override its layout. Preserve source metadata and selection in the isolated document.
+- Correct drag/resize distances at reduced zoom and make selection immediately available to keyboard nudges.
+- Prefer editable HTML sources over packaged releases/build output, with a separate fallback scan when no source HTML is present.
+- Add real-browser regressions for the reported welcome layout, wide-page fitting, CSS isolation, scrolling, selection, zoomed movement, and resizing.
+
 ## 0.4.0
 
 ### Page redesign

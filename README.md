@@ -43,7 +43,9 @@
 
 ---
 
-**New in 0.4:** protected page redesign with a complete source diff, improved framework and package-manager detection, retryable failed edits, and clearer App Mode controls that follow your VS Code theme.
+**New in 0.4.1:** previews fit your editor pane, with zoom, two-axis scrolling, and canvas panning. Static page CSS stays isolated from editor controls, and HTML detection prefers source files over packaged release copies.
+
+**Preview controls:** choose **Auto** to use the available width, **Fit to width** to see a wide page, or **100%** for actual size. Scroll or use middle-drag / **Space + drag** to pan. Device presets affect the page preview; the Welcome screen stays full-width.
 
 **Choose your workflow:** open HTML directly, connect to a running app, or use **Live UI: Redesign Page** to start a guided AI redesign.
 

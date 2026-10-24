@@ -13,8 +13,8 @@ export function scoreHtmlCandidatePath(rel: string): number {
   if (withLeading.includes('/src/')) score += 12;
   if (withLeading.includes('/app/')) score += 10;
   if (withLeading.includes('/pages/')) score += 10;
-  if (withLeading.includes('/dist/')) score += 18;
-  if (withLeading.includes('/build/')) score += 18;
+  if (/\/(?:dist|build|out|releases?|artifacts?|coverage|\.next|\.output)\//.test(withLeading)) score -= 180;
+  if (/\/(?:resources\/app|app\.asar(?:\.unpacked)?)\//.test(withLeading)) score -= 100;
   if (withLeading.includes('/docs/')) score += 8;
   if (withLeading.includes('/storybook')) score += 6;
   // Avoid test fixtures by default.
@@ -34,5 +34,7 @@ export function rankHtmlCandidates(files: string[], limit = 12): DetectionReport
   }
 
   candidates.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.label.localeCompare(b.label));
-  return candidates.slice(0, Math.max(1, limit));
+  // Keep packaged copies as a fallback, but don't bury editable sources under them.
+  const sources = candidates.filter(candidate => (candidate.score ?? 0) >= 0);
+  return (sources.length ? sources : candidates).slice(0, Math.max(1, limit));
 }

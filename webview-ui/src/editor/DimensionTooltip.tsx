@@ -5,13 +5,14 @@ export type DimensionTooltipProps = {
   isDragging: boolean;
   isResizing: boolean;
   isDark: boolean;
+  scale?: number;
 };
 
-export function DimensionTooltip({ rect, isDragging, isResizing, isDark }: DimensionTooltipProps) {
+export function DimensionTooltip({ rect, isDragging, isResizing, isDark, scale = 1 }: DimensionTooltipProps) {
   if (!rect || (!isDragging && !isResizing)) return null;
 
-  const w = Math.round(rect.width);
-  const h = Math.round(rect.height);
+  const w = Math.round(rect.width / scale);
+  const h = Math.round(rect.height / scale);
   const x = Math.round(rect.x);
   const y = Math.round(rect.y);
 

@@ -14,7 +14,10 @@ export function hitTestAtPoint(args: {
 
   let elements: Element[] = [];
   try {
-    elements = document.elementsFromPoint(clientX, clientY);
+    const root = canvasEl.getRootNode() as Document & { elementsFromPoint?: Document['elementsFromPoint'] };
+    elements = typeof root.elementsFromPoint === 'function'
+      ? root.elementsFromPoint(clientX, clientY)
+      : document.elementsFromPoint(clientX, clientY);
   } catch {
     return null;
   }

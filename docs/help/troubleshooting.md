@@ -110,3 +110,12 @@ If you see an **Apply Anyway** option, it means Live UI Editor isn’t fully con
 2. In the dropdown on the right, select **Live UI Editor**
 
 That channel includes mapping/apply diagnostics and errors.
+## Preview is larger than the editor or won't fit the screen
+
+- Update Live UI Editor to **0.4.1 or later**, then reload the VS Code window.
+- Choose **Auto** at the start of the Preview bar to use the editor's available width.
+- Choose **Fit to width** in the Zoom menu to fit fixed-width pages. Choose **100%** to inspect actual size, then scroll horizontally or vertically to reach the rest of the page.
+- Pan with the middle mouse button, or hold **Space** and drag the page.
+- Move or resize the VS Code editor group using its tab and split-editor controls. Dragging a selected page element changes that element; it does not move the VS Code pane.
+- Device presets do not constrain the Welcome screen. Project `body`, `html`, and button styles are isolated from the editor UI.
+- Prefer the project's source HTML. Packaged `releases`, `dist`, and `build` copies are offered only when source HTML is unavailable.
